@@ -135,10 +135,12 @@ row looks changed on every run.
 and silently becomes a plain `s`, so a whitespace class quietly turns into "runs
 of the letter s". Use POSIX classes like `[[:space:]]` in SQL strings.
 
-**Two normalisations must agree.** `matchKeyFor` in JavaScript and the
-normalising expression in `everydaySpendRate` have to produce the same text, or
-commitments fail to match and get counted twice: once as a commitment and again
-as everyday spending, which makes the runway too short.
+**There is one definition of a commitment's match key**, `matchKeyFor`, and
+`everydaySpendRate` groups in JavaScript so it can use it directly. An earlier
+version wrote the same normalisation again in SQL, and the two drifted apart the
+moment one changed: commitments stopped matching and were counted twice, once as
+a commitment and again as everyday spending, which made the runway look far
+shorter than it was. Do not reintroduce a second copy of that logic in SQL.
 
 ## Design decisions worth keeping
 

@@ -10,7 +10,7 @@
 // redraw is deliberately ignored: it is money we would have to borrow back.
 import { query } from './db.js';
 import { periodsBetween, getPayCycle } from './buckets.js';
-import { upcomingCommitments } from './commitments.js';
+import { upcomingCommitments, matchKeyFor } from './commitments.js';
 
 const DAY_MS = 86_400_000;
 const toDate = (value) => new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
@@ -43,40 +43,34 @@ export async function liquidBalance(client = { query }) {
 }
 
 // The everyday spend rate: what goes out that is not a tracked commitment.
+//
+// The grouping is done here rather than in SQL on purpose. Deciding what is
+// committed means comparing a description against a commitment's match key, and
+// matchKeyFor is the only definition of how that key is built. Writing the same
+// normalisation again in SQL meant the two drifted apart the moment one changed,
+// and a commitment that fails to match gets counted twice, once as a commitment
+// and again as everyday spending, which makes the runway look shorter than it is.
 export async function everydaySpendRate(days = 90, client = { query }) {
   const { rows } = await client.query(
-    `
-    with window_flows as (
-      select t.id, t.amount, coalesce(t.display_description, t.description) as label
-        from budget_flows t
-       where t.counts and t.amount < 0
-         and t.txn_date >= current_date - $1::integer
-         and t.txn_date <= current_date
-    ),
-    committed as (
-      -- This has to normalise exactly the way matchKeyFor does in JavaScript,
-      -- non alphanumeric to a space, runs of whitespace collapsed, trimmed and
-      -- uppercased. Any difference here quietly fails to match a commitment,
-      -- which then gets counted as everyday spending as well as being forecast
-      -- separately, and the runway comes out too short.
-      select w.id
-        from window_flows w
-        join commitments c on c.active
-         -- [[:space:]] rather than a backslash class: this SQL lives in a
-         -- JavaScript template literal, where \s is not a valid escape and
-         -- silently becomes a plain s, which would collapse runs of the letter
-         -- s instead of whitespace.
-         and upper(trim(regexp_replace(regexp_replace(w.label, '[^A-Za-z0-9 ]+', ' ', 'g'), '[[:space:]]+', ' ', 'g')))
-             like upper(c.match_key) || '%'
-    )
-    select coalesce(sum(-w.amount), 0) as total,
-           coalesce(sum(-w.amount) filter (where w.id in (select id from committed)), 0) as committed_total
-      from window_flows w
-    `,
+    `select t.amount, coalesce(t.display_description, t.description) as label
+       from budget_flows t
+      where t.counts and t.amount < 0
+        and t.txn_date >= current_date - $1::integer
+        and t.txn_date <= current_date`,
     [days],
   );
-  const totalCents = toCents(rows[0].total);
-  const committedCents = toCents(rows[0].committed_total);
+
+  const { rows: commitments } = await client.query('select match_key from commitments where active');
+  const keys = new Set(commitments.map((row) => row.match_key));
+
+  let totalCents = 0;
+  let committedCents = 0;
+  for (const row of rows) {
+    const cents = -toCents(row.amount);
+    totalCents += cents;
+    if (keys.has(matchKeyFor(row.label))) committedCents += cents;
+  }
+
   const everydayCents = Math.max(totalCents - committedCents, 0);
   return {
     days,
