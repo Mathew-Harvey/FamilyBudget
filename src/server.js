@@ -16,6 +16,7 @@ import { forecastRouter } from './routes/forecast.js';
 import { alertsRouter } from './routes/alerts.js';
 import { analystRouter } from './routes/analyst.js';
 import { spendingRouter } from './routes/spending.js';
+import { behaviourRouter } from './routes/behaviour.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -72,9 +73,13 @@ export function createApp() {
   app.use('/api/alerts', alertsRouter);
   app.use('/api/analyst', analystRouter);
   app.use('/api/spending', spendingRouter);
+  app.use('/api/today', behaviourRouter);
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
-  app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'accounts.html')));
+  // Today is the front door. The first screen should be the one that answers
+  // "what now", not a list of accounts: a page you have to navigate to is a
+  // page you look at when you already intended to.
+  app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'today.html')));
 
   app.use((req, res) => {
     if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'No such route' });

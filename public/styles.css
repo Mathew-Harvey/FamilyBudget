@@ -180,3 +180,15 @@ tr:last-child td { border-bottom: 0; }
 }
 
 .login-wrap { max-width: 22rem; margin: 15vh auto; padding: 0 1rem; }
+
+/* The Today page. Two tones only: something is going the right way, or it is
+   not. Anything more granular is a traffic light nobody reads. */
+.good { color: var(--in); }
+.warn { color: var(--out); }
+
+/* The runway date is the largest thing on the page on purpose. A date lands
+   against a real calendar in a way that a number of days does not. */
+.today-date { font-size: 2.6rem; font-weight: 700; line-height: 1.1; }
+@media (max-width: 24rem) {
+  .today-date { font-size: 2.1rem; }
+}

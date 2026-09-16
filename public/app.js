@@ -66,6 +66,7 @@ export function accountLabel(account) {
 // The shared header, so the nav lives in one place.
 export function renderNav(current) {
   const pages = [
+    ['/today', 'Today'],
     ['/accounts', 'Accounts'],
     ['/spending', 'Spending'],
     ['/transactions', 'Transactions'],

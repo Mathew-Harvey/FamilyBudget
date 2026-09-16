@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Today</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <div id="notice"></div>
+
+  <!-- One number, one date, one decision. Everything else on this page is
+       there to support the decision, and the page is ordered so that closing
+       it after the first screen still leaves you with the thing that matters. -->
+  <section class="card" id="headline">
+    <p class="muted" style="margin:0">Loading...</p>
+  </section>
+
+  <section id="stuck"></section>
+  <section id="movers"></section>
+  <section id="stop"></section>
+  <section id="decisions"></section>
+</main>
+<script type="module" src="/today.js"></script>
+</body>
+</html>

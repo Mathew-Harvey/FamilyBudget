@@ -33,8 +33,8 @@ banking cannot reach.
 
 ## Stack and layout
 
-Five runtime dependencies: `express`, `pg`, `express-session`,
-`connect-pg-simple`, `bcryptjs`. No development dependencies. Node 22 or newer,
+Six runtime dependencies: `express`, `pg`, `express-session`,
+`connect-pg-simple`, `bcryptjs`, `@anthropic-ai/sdk`. No development dependencies. Node 22 or newer,
 which gives `--env-file` and the test runner without any package. Email is sent
 with `fetch` against a provider's JSON API, so alerts add no package.
 
@@ -54,11 +54,14 @@ src/         db.js          one shared pg pool, SSL and type parsers
              alerts.js      what is worth saying, and when
              email.js       sending, with no dependency
              analyst.js     the snapshot, and the Claude API
+             behaviour.js   the Today page: position, whether it stuck, trade offs
              auth.js        sessions, the gate, login
              server.js      the Express app
              routes/        one file per area
-public/      login, accounts, transactions, categories, rules, buckets,
-             forecast, transfers, sync, alerts, plus app.js and styles.css
+public/      today (the front door), login, accounts, spending, transactions,
+             categories, rules, buckets, forecast, transfers, sync, alerts,
+             plus app.js and styles.css
+docs/        behaviour.md, the reasoning behind the Today page
 test/        node:test suites and redacted fixtures
 ```
 
@@ -186,6 +189,37 @@ moment one changed: commitments stopped matching and were counted twice, once as
 a commitment and again as everyday spending, which made the runway look far
 shorter than it was. Do not reintroduce a second copy of that logic in SQL.
 
+**Spending rates exclude one offs, and divide by the days there is history
+for.** A renovation or a new engine is real spending and shows in every total,
+but it is not a guide to next month, so `transactions.one_off` keeps it out of
+the rate only. Do not go back to defending against it with a short window: a
+short window forgets one large purchase by forgetting everything, and
+`scripts/backtest.js` measures the cost of that. Run the backtest rather than
+arguing about the window. Dividing by the days asked for rather than the days
+covered understates the rate badly on a young database.
+
+**A commitment and a merchant have two different keys.** `matchKeyFor` keeps
+three words and drops numeric ones, `merchantKeyFor` strips processor prefixes
+and keeps four. They are not interchangeable and joining `commitments.match_key`
+to `transactions.merchant_key` in SQL matches almost nothing. When both are
+needed, group in JavaScript with the one definition, the same rule as
+`everydaySpendRate`.
+
+**Comparing two windows of different lengths breaks on anything lumpy.** A
+fortnightly payment falls a different number of times per day in a 56 day window
+than in a 180 day one, so a raw comparison invents changes that did not happen.
+Anything comparing before and after a date has to exclude commitments and
+anything with fewer than two occurrences on both sides, and report what it left
+out rather than dropping it.
+
+**The Today page must never bend a number.** `docs/behaviour.md` sets out which
+persuasion techniques are used and which are refused, and why the refusals are
+self interested rather than merely principled. The short version: every figure
+must be true and must agree with the rest of the app, nothing is ever attributed
+to Mat or to Skye by name, and the page never implies that cancelling a few
+subscriptions closes a gap it does not close. Read that document before changing
+anything on that page.
+
 ## Design decisions worth keeping
 
 - **Pending resolution updates the row in place** rather than deleting and
@@ -213,6 +247,9 @@ shorter than it was. Do not reintroduce a second copy of that logic in SQL.
   key or every occurrence lands in its own group.
 - **Only liquid accounts count as spendable cash.** The mortgage redraw is
   money we would have to borrow back.
+- **An intention is checked against the transactions**, not against a tick box.
+  When there is nothing observable to check, it says so rather than showing a
+  green tick.
 - **Alerts carry a dedupe key** that changes only when the situation
   meaningfully changes, and everything considered is logged even when it is not
   sent.

@@ -187,6 +187,11 @@ export async function forecast({
   extraEvents = [],
   // How many days of recent spending set the everyday rate.
   window = DEFAULT_SPEND_WINDOW_DAYS,
+  // Trade offs. Spending less every day, or stopping a commitment, so the
+  // question "what would this actually buy us" can be answered as a date
+  // rather than as a number of dollars. Neither changes anything stored.
+  spendAdjustmentCentsPerDay = 0,
+  excludeCommitmentIds = [],
 } = {}) {
   const cycle = await getPayCycle(client);
   const opening = await liquidBalance(client);
@@ -209,7 +214,10 @@ export async function forecast({
         .filter((date) => date >= today && date <= end)
     : [];
 
-  const commitments = await upcomingCommitments(today, end, client);
+  const skip = new Set(excludeCommitmentIds.map(String));
+  const commitments = (await upcomingCommitments(today, end, client)).filter(
+    (commitment) => !skip.has(String(commitment.commitment_id)),
+  );
 
   // Income we know is coming but that has not appeared in the history yet: a
   // job starting, a side income beginning. Counted from its start date, so the
@@ -313,7 +321,7 @@ export async function forecast({
     // Day zero is today's actual balance, so nothing is applied to it.
     if (day > 0) {
       for (const event of events) balanceCents += event.amount_cents;
-      balanceCents -= rate.per_day_cents;
+      balanceCents -= Math.max(rate.per_day_cents - spendAdjustmentCentsPerDay, 0);
     }
 
     if (balanceCents < lowest.cents) lowest = { date, cents: balanceCents };

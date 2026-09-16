@@ -14,7 +14,7 @@ form.addEventListener('submit', async (event) => {
         password: document.getElementById('password').value,
       },
     });
-    window.location.href = '/accounts';
+    window.location.href = '/today';
   } catch (err) {
     showError(err.message);
     button.disabled = false;
