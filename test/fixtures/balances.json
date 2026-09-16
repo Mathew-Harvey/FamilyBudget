@@ -1,0 +1,66 @@
+[
+  {
+    "object": "balance",
+    "account": "acct_47179cb447179cb447179c",
+    "current": {
+      "amount": 7850,
+      "currency": "aud"
+    },
+    "available": {
+      "amount": 671,
+      "currency": "aud"
+    },
+    "currency": "aud",
+    "observed_at": "2026-01-16T01:39:08.744Z",
+    "freshness": "fresh",
+    "livemode": true
+  },
+  {
+    "object": "balance",
+    "account": "acct_3dbab8873dbab8873dbab8",
+    "current": {
+      "amount": -16625,
+      "currency": "aud"
+    },
+    "available": {
+      "amount": 4309,
+      "currency": "aud"
+    },
+    "currency": "aud",
+    "observed_at": "2026-01-16T01:39:11.409Z",
+    "freshness": "fresh",
+    "livemode": true
+  },
+  {
+    "object": "balance",
+    "account": "acct_9cb984b89cb984b89cb984",
+    "current": {
+      "amount": 15824,
+      "currency": "aud"
+    },
+    "available": {
+      "amount": 2272,
+      "currency": "aud"
+    },
+    "currency": "aud",
+    "observed_at": "2026-01-16T01:39:08.794Z",
+    "freshness": "fresh",
+    "livemode": true
+  },
+  {
+    "object": "balance",
+    "account": "acct_6412ecd36412ecd36412ec",
+    "current": {
+      "amount": 11499,
+      "currency": "aud"
+    },
+    "available": {
+      "amount": 12405,
+      "currency": "aud"
+    },
+    "currency": "aud",
+    "observed_at": "2026-01-16T01:39:09.118Z",
+    "freshness": "fresh",
+    "livemode": true
+  }
+]

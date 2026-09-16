@@ -1,0 +1,25 @@
+{
+  "name": "familybudget",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private household budgeting app. Stage 1: ingest, dedupe, transfer detection, verification UI.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "sync": "node --env-file-if-exists=.env src/sync.js",
+    "discover": "node --env-file-if-exists=.env scripts/discover.js",
+    "create-user": "node --env-file-if-exists=.env scripts/create-user.js",
+    "test": "node --env-file-if-exists=.env --test test/"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "connect-pg-simple": "^10.0.0",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "pg": "^8.16.3"
+  }
+}

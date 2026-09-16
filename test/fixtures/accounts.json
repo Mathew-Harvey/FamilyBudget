@@ -1,0 +1,86 @@
+[
+  {
+    "id": "acct_47179cb447179cb447179c",
+    "object": "account_item",
+    "connection": "conn_5dec88315dec88315dec88",
+    "provider": "fiskil",
+    "category": "banking",
+    "name": "Test Account 1",
+    "type": "transaction",
+    "institution": {
+      "id": "inst_test_1",
+      "name": "Test Bank 1",
+      "logo": null
+    },
+    "account_number": "xxxx1000",
+    "currency": "aud",
+    "status": "available",
+    "last_updated_at": "2026-01-16T01:22:32.942Z",
+    "livemode": true,
+    "created": "2026-01-16T01:22:18.193Z",
+    "updated": "2026-01-16T01:22:32.942Z"
+  },
+  {
+    "id": "acct_3dbab8873dbab8873dbab8",
+    "object": "account_item",
+    "connection": "conn_20ce175220ce175220ce17",
+    "provider": "fiskil",
+    "category": "banking",
+    "name": "Test Account 2",
+    "type": "loan",
+    "institution": {
+      "id": "inst_test_2",
+      "name": "Test Bank 2",
+      "logo": null
+    },
+    "account_number": "xxxx1001",
+    "currency": "aud",
+    "status": "available",
+    "last_updated_at": "2026-01-16T01:22:33.317Z",
+    "livemode": true,
+    "created": "2026-01-16T01:22:18.022Z",
+    "updated": "2026-01-16T01:22:33.317Z"
+  },
+  {
+    "id": "acct_9cb984b89cb984b89cb984",
+    "object": "account_item",
+    "connection": "conn_5dec88315dec88315dec88",
+    "provider": "fiskil",
+    "category": "banking",
+    "name": "Test Account 3",
+    "type": "transaction",
+    "institution": {
+      "id": "inst_test_3",
+      "name": "Test Bank 3",
+      "logo": null
+    },
+    "account_number": "xxxx1002",
+    "currency": "aud",
+    "status": "available",
+    "last_updated_at": "2026-01-16T01:22:33.009Z",
+    "livemode": true,
+    "created": "2026-01-16T01:18:55.971Z",
+    "updated": "2026-01-16T01:22:33.009Z"
+  },
+  {
+    "id": "acct_6412ecd36412ecd36412ec",
+    "object": "account_item",
+    "connection": "conn_5dec88315dec88315dec88",
+    "provider": "fiskil",
+    "category": "banking",
+    "name": "Test Account 4",
+    "type": "transaction",
+    "institution": {
+      "id": "inst_test_4",
+      "name": "Test Bank 4",
+      "logo": null
+    },
+    "account_number": "xxxx1003",
+    "currency": "aud",
+    "status": "available",
+    "last_updated_at": "2026-01-16T01:22:32.976Z",
+    "livemode": true,
+    "created": "2026-01-16T01:18:55.971Z",
+    "updated": "2026-01-16T01:22:32.976Z"
+  }
+]
