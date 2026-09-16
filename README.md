@@ -1,1 +1,249 @@
 # FamilyBudget
+
+A private household budgeting app for two people. Stage 1 pulls our bank data
+from Redbark, stores it in Postgres, removes duplicates, matches pending
+transactions to their posted versions, detects transfers between our own
+accounts, and gives us a UI to check it all against our banking apps.
+
+Later stages will add categories and rules, zero based buckets per pay period,
+a cash runway forecast and email alerts. The schema has room for them, but
+nothing beyond Stage 1 is built.
+
+## Stack
+
+Node.js and Express, Postgres through `pg` with plain SQL and no ORM, and a
+frontend of plain HTML, CSS and JavaScript served as static files by the same
+Express app. No framework, no build step, no bundler. Tests use the built in
+`node:test` runner.
+
+Five runtime dependencies: `express`, `pg`, `express-session`,
+`connect-pg-simple`, `bcryptjs`. No development dependencies.
+
+## Layout
+
+```
+migrations/     numbered .sql files, applied in order by scripts/migrate.js
+scripts/        migrate.js, discover.js, create-user.js
+src/            db.js, redbark.js, sync.js, transfers.js, matching.js,
+                money.js, auth.js, server.js, routes/
+public/         the five pages, plus styles.css and app.js
+test/           node:test suites and redacted fixtures
+```
+
+## Local setup
+
+You need Node 22 or newer and a Postgres you can reach.
+
+```bash
+git clone <this repo>
+cd FamilyBudget
+npm install
+cp .env.example .env
+```
+
+Fill in `.env`. It is gitignored and must never be committed.
+
+| Variable | What it is |
+| --- | --- |
+| `DATABASE_URL` | Postgres. Locally, use the Render **External** url. |
+| `TEST_DATABASE_URL` | A **separate** database used only by `npm test`. Local only. |
+| `REDBARK_API_KEY` | From Redbark, Settings > API & MCP. Needs `connections:read` and `data:read`. |
+| `REDBARK_API_VERSION` | `2026-10-01.wattle`. Sent on every request, which the API requires. |
+| `SESSION_SECRET` | A long random string. `node -e "console.log(crypto.randomUUID())"` |
+| `NODE_ENV` | `development` locally, `production` on Render. |
+
+Then:
+
+```bash
+npm run migrate       # create the schema
+npm run create-user   # prompts for email and password, no signup page exists
+npm run sync          # first run backfills, later runs re-read 21 days
+npm start             # http://localhost:3000
+```
+
+`npm run discover` prints the shape of what Redbark returns and answers the
+questions the parsers depend on. `npm run discover -- --fixtures` refreshes the
+redacted test fixtures.
+
+### The test database
+
+Tests refuse to run unless `TEST_DATABASE_URL` is set and is different from
+`DATABASE_URL`, and once satisfied they repoint `DATABASE_URL` at the test
+database for the duration of the run, so no code path can reach live data even
+by accident.
+
+Render gives one database per instance. Either run a local Postgres for tests:
+
+```bash
+createdb familybudget_test
+# TEST_DATABASE_URL=postgresql://localhost:5432/familybudget_test
+```
+
+or, if your Render role is allowed to, create a second database on the same
+instance and point `TEST_DATABASE_URL` at it:
+
+```bash
+psql "<external url>" -c "create database familybudget_test"
+```
+
+Run them with `npm test`.
+
+## Render setup
+
+Three services, all in the same region, so the private network is available.
+
+### 1. Postgres
+
+Create a **Render Postgres** instance on **PostgreSQL 18**. No extensions are
+needed: the schema uses `gen_random_uuid()`, which is built in.
+
+Render gives two connection strings for it:
+
+- **Internal Database URL**, a bare hostname such as `dpg-xxxx-a`. Same region,
+  private network. Used by the Web Service and the Cron Job.
+- **External Database URL**, a full hostname such as
+  `dpg-xxxx-a.singapore-postgres.render.com`. Reached over the public internet
+  and requires SSL. Used from your own machine.
+
+`src/db.js` turns SSL on for any host that is not localhost, so the same code
+works with either url and nothing needs changing between them.
+
+### 2. Web Service
+
+| Setting | Value |
+| --- | --- |
+| Environment | Node |
+| Build command | `npm ci` |
+| Start command | `npm start` |
+| Health check path | `/healthz` |
+
+Environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | the **Internal** Database URL |
+| `REDBARK_API_KEY` | your Redbark key |
+| `REDBARK_API_VERSION` | `2026-10-01.wattle` |
+| `SESSION_SECRET` | a long random string |
+| `NODE_ENV` | `production` |
+
+Do **not** set `TEST_DATABASE_URL` on Render. It is a local only variable.
+
+### 3. Cron Job
+
+| Setting | Value |
+| --- | --- |
+| Build command | `npm ci` |
+| Command | `npm run sync` |
+| Schedule | `0 10,22 * * *` |
+
+Render cron schedules are UTC. Perth is UTC+8 all year with no daylight saving,
+so `0 10,22 * * *` runs at 6pm and 6am Perth time.
+
+Environment variables: the same as the Web Service, except `SESSION_SECRET`,
+which the sync does not use. `DATABASE_URL` is again the **Internal** url.
+
+### Running migrations against Render
+
+From your own machine, with `DATABASE_URL` set to the **External** url:
+
+```bash
+npm run migrate
+```
+
+Render does not run migrations for you. Do this before the first deploy, and
+again after any new file lands in `migrations/`.
+
+## How the sync behaves
+
+- **First run per account** backfills in 180 day windows. Redbark caps one read
+  at 5000 rows, and the busiest account runs to about 180 transactions a month,
+  so the windows keep each read well clear of the cap.
+- **Later runs** re-read the last 21 days, so late posting and edited
+  transactions are caught. Tune with `SYNC_OVERLAP_DAYS`.
+- **Idempotent.** Running it twice in a row changes nothing the second time.
+- **Pending to posted.** Redbark transaction ids are content hashes, so an id
+  can change when a transaction settles. A newly posted row is matched against
+  existing pending rows on equal amount, date within 5 days and description
+  similarity, and the pending row is then updated in place. A tie resolves
+  nothing rather than guessing. Pending rows Redbark stops returning for 10 days
+  are removed, because they were cancelled or reversed.
+- **One account failing does not stop the others**, and every run records a
+  `sync_runs` row, successes and failures alike.
+- **Rate limits.** Transactions are the "heavy" tier at 30 requests a minute.
+  The client throttles itself below that and backs off on 429 and 5xx, honouring
+  `Retry-After`.
+
+## How transfer detection behaves
+
+Two transactions pair when they are on different accounts we own, equal in size
+and opposite in sign, within 3 days, both unpaired, and not previously rejected
+as a pair.
+
+Candidates are ranked by date distance first and text hints second, and a pair
+is only taken when it beats every other still available candidate on **both**
+sides. Anything that ties is left for a person to decide on the Transfers page.
+
+The strongest hint is the counterpart account's last four digits, which ING
+writes into the description of the receiving side. That number is read from the
+`accounts` table, so no account number appears anywhere in the source.
+
+Zero amount rows are never paired. Real data contains $0 card authorisations,
+and two of those on different accounts are trivially equal and opposite.
+
+Rejecting a pair records the **pair**, not the rows, so a transaction offered
+against the wrong counterpart is still free to pair with the right one.
+
+A transaction whose counterpart is outside our connected accounts, such as a
+repayment to the ING personal loan, is simply left unpaired. Later stages will
+treat it as a commitment.
+
+## Security
+
+- The Redbark key is read from `process.env.REDBARK_API_KEY` only. It is never
+  logged, never sent to the browser and never written to a file by the app.
+- Every page and API route needs a session, except the login page itself.
+- Passwords are bcrypt hashes. There is no signup page: logins are created with
+  `npm run create-user`.
+- Sessions live in Postgres. Cookies are `httpOnly`, `sameSite=lax`, and
+  `secure` when `NODE_ENV=production`.
+- The login route is rate limited to 10 attempts per IP per 15 minutes.
+- Errors are logged without the request body, so transaction descriptions and
+  amounts stay out of the logs.
+- Test fixtures are redacted: descriptions, amounts, merchants, account numbers
+  and names, ids and institutions are replaced, and every date is shifted by one
+  constant so no real date is published. Structure, field names, id formats,
+  sign conventions and pending flags are preserved exactly.
+
+## Money
+
+Redbark sends integer minor units. This app keeps integer cents in JavaScript
+everywhere and converts to a decimal string only at the `numeric(12,2)`
+boundary, in `src/money.js`. No floating point arithmetic touches an amount, and
+`src/db.js` stops `pg` turning numeric columns into floats on the way back.
+
+Note the sign convention on a loan account: a repayment arrives **positive**
+because it reduces the debt, and interest charged is negative. That is what lets
+a mortgage repayment pair as equal and opposite against the ING side.
+
+## Redbark API notes
+
+The app talks to **v2**, verified against the live API on 2026-09-16. Every call
+is isolated in `src/redbark.js`, so an API change is a one file fix.
+
+v1 is not usable for this app: it filters pending transactions out upstream, so
+pending to posted matching is impossible there. v2 also returns amounts as
+integer minor units rather than decimal strings, and adds the `reference` and
+`extended_description` fields that transfer matching leans on.
+
+Worth knowing:
+
+- `Redbark-Version` is required on every request.
+- Transactions take `account` only. Passing `connectionId` is a v1 idea and is
+  rejected.
+- `include_pending=true` is required. Pending rows are excluded by default.
+- Omitting `from` silently limits a read to the last 30 days.
+- History reaches about 7 years. Beyond that is `400 from_too_old`. Actual depth
+  depends on the bank: ING serves back to January 2022.
+- Accounts do **not** need to be added to a sync in the Redbark dashboard for
+  the API to return their data.

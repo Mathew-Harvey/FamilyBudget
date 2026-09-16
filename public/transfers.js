@@ -7,7 +7,7 @@ function side(label, date, amount, account, description) {
     el('div', { class: 'muted', text: label }),
     el('div', { class: 'row' }, [
       el('span', { class: `amount ${amountClass(amount)}`, text: formatAmount(amount) }),
-      el('span', { class: 'muted', text: `${formatDate(date)} . ${account}` }),
+      el('span', { class: 'muted', text: `${formatDate(date)}, ${account}` }),
     ]),
     el('div', { class: 'truncate', text: description || '' }),
   ]);

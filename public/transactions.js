@@ -4,7 +4,6 @@ renderNav('/transactions');
 
 const PAGE = 100;
 let offset = 0;
-let accountsById = new Map();
 
 function filters() {
   const params = new URLSearchParams();
@@ -22,14 +21,15 @@ function filters() {
 }
 
 function row(txn) {
-  const account = accountsById.get(txn.account_id);
   const badges = [];
   if (txn.status === 'pending') badges.push(el('span', { class: 'badge pending', text: 'pending' }));
   if (txn.is_transfer) {
+    // Jumps to the other side of the pair when it is on screen, and always says
+    // which account and date it is paired with.
     badges.push(
       el('a', {
         class: 'badge transfer',
-        href: `/transactions?account_id=${txn.account_id === account?.id ? '' : ''}#${txn.transfer_pair_id}`,
+        href: `#${txn.transfer_pair_id}`,
         title: `Paired with ${txn.pair_account_name || ''} ${txn.pair_masked_number || ''} on ${formatDate(txn.pair_date)}`,
         text: `transfer ${txn.transfer_confidence || ''}`.trim(),
       }),
@@ -45,7 +45,7 @@ function row(txn) {
     ]),
     el('td', { 'data-col': 'meta' }, [
       el('span', { class: 'muted' }, [
-        `${formatDate(txn.txn_date)} . ${txn.bank} ${txn.masked_number || ''} `,
+        `${formatDate(txn.txn_date)}, ${txn.bank} ${txn.masked_number || ''} `,
       ]),
       ...badges,
     ]),
@@ -96,7 +96,6 @@ async function load(reset = false) {
 
 try {
   const { accounts } = await api('/api/accounts');
-  accountsById = new Map(accounts.map((a) => [a.id, a]));
   const select = document.getElementById('account');
   for (const account of accounts) {
     select.append(el('option', { value: account.id, text: `${account.bank} ${account.masked_number || ''} ${account.name}` }));

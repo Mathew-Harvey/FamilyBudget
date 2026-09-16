@@ -80,7 +80,7 @@ function card(account) {
         ? ` from ${formatDate(account.earliest_transaction)} to ${formatDate(account.latest_transaction)}`
         : ' (none yet)',
       account.latest_available_balance !== null && account.latest_available_balance !== undefined
-        ? ` . available ${formatAmount(account.latest_available_balance)}`
+        ? `, available ${formatAmount(account.latest_available_balance)}`
         : '',
     ]),
     el('div', { class: 'row' }, [

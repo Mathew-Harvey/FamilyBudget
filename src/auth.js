@@ -9,7 +9,7 @@ import { getPool, query } from './db.js';
 // without it.
 const PUBLIC_PATHS = new Set([
   '/login', '/login.html', '/login.js', '/app.js', '/styles.css',
-  '/api/auth/login', '/healthz',
+  '/api/auth/login', '/healthz', '/favicon.svg',
 ]);
 
 export function buildSession() {

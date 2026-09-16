@@ -149,20 +149,34 @@ tr:last-child td { border-bottom: 0; }
 
 .empty { text-align: center; color: var(--ink-soft); padding: 2rem 1rem; }
 
-/* On a phone the transaction table becomes one block per row. */
+/* On a phone the transaction table becomes one block per row. The table and
+   tbody have to become blocks too, otherwise table layout sizes to the widest
+   content and pushes the amount off the side of the screen. */
 @media (max-width: 640px) {
+  .table-responsive,
+  .table-responsive tbody { display: block; width: 100%; }
   .table-responsive thead { display: none; }
   .table-responsive tr {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.15rem 0.5rem;
     padding: 0.6rem 0;
     border-bottom: 1px solid var(--line);
   }
-  .table-responsive td { border: 0; padding: 0; }
+  /* min-width 0 lets a grid item shrink below its content, which is what makes
+     the truncation and wrapping below actually take effect. */
+  .table-responsive td { border: 0; padding: 0; min-width: 0; }
   .table-responsive td[data-col="amount"] { grid-column: 2; grid-row: 1; text-align: right; }
   .table-responsive td[data-col="description"] { grid-column: 1; grid-row: 1; font-weight: 500; }
-  .table-responsive td[data-col="meta"] { grid-column: 1 / -1; grid-row: 2; }
+  .table-responsive td[data-col="meta"] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    /* Account name plus badges, allowed to wrap onto a second line. */
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+  }
 }
 
 .login-wrap { max-width: 22rem; margin: 15vh auto; padding: 0 1rem; }
