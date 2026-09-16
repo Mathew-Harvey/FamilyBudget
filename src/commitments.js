@@ -107,6 +107,11 @@ export async function detectCommitments(options = {}) {
          from budget_flows t
         where t.counts
           and t.amount < 0
+          -- A merchant that has been finished with does not get to become a
+          -- commitment again on the next run. Without this, cancelling an
+          -- insurer is undone by the next sync for as long as the lookback
+          -- still remembers the premiums.
+          and not t.no_longer_expected
           and t.txn_date >= current_date - $1::integer
         order by t.txn_date`,
       [options.lookbackDays ?? 400],
@@ -186,6 +191,26 @@ export async function detectCommitments(options = {}) {
         where source = 'detected'
           and active
           and last_seen < current_date - (cadence_days * 2)`,
+    );
+
+    // A detected commitment whose key matches nothing in the whole lookback is
+    // stale, not late. That happens whenever the definition of the key changes:
+    // the old rows keep their old keys, nothing ever matches them again, and
+    // they are projected forward while the same spending is ALSO counted as
+    // everyday, because everydaySpendRate can only subtract what it can match.
+    // Two cycles of grace never expires them, because last_seen is frozen at
+    // whatever it was when they were last detected.
+    //
+    // Only detected rows. A manual commitment may be a future expense someone
+    // accepted, which is supposed to have no history behind it.
+    const liveKeys = [...groups.keys()];
+    await client.query(
+      `update commitments
+          set active = false, updated_at = now()
+        where source = 'detected'
+          and active
+          and not (match_key = any($1::text[]))`,
+      [liveKeys],
     );
 
     return found.length;

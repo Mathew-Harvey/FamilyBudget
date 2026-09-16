@@ -250,6 +250,29 @@ amount. Pairing is strict and one to one, charges before credits within a day
 ordering by a random uuid), and a credit that already has a pair is skipped or
 every sync silently reshuffles which charges counted.
 
+**A cost that has been cancelled stops being forecast.** `merchants.ended_on`
+keeps a merchant's spending in the history and in every total and out of every
+rate, which is what `transactions.one_off` does for a purchase. Waiting for
+commitment detection to stand a cancelled bill down takes two full cycles, and
+waiting for the window to forget it takes months, which is months of a forecast
+that is knowably wrong. Detection also skips ended merchants, or the next sync
+resurrects the commitment for as long as the lookback still holds the payments.
+Set it on the Spending page, not by hand in the database.
+
+**Removing a cost is not the same as it going away.** Ending Youi moved the
+runway from 25 November to 17 December, which was wrong: the household had
+switched to Suncorp, not stopped insuring anything. The replacement had three
+payments and could not reach the rate on its own, so it went in as a manual
+commitment and the honest answer came back to 27 November. When a recurring cost
+ends, find what replaced it before believing the new number.
+
+**A detected commitment whose key matches nothing is stale, not late.** The two
+cycles of grace never expires it, because `last_seen` is frozen at whatever it
+was when it was last detected, so it is projected forward while the same
+spending is also counted as everyday. This happens every time a key definition
+changes. `detectCommitments` stands those down; manual rows are left alone,
+because an accepted expense proposal is supposed to have no history behind it.
+
 **A rate needs enough observations to be a rate.** One payment divided by a
 window is not a monthly cost: the Bendigo card is 25 a year to keep open and was
 reported at 25.37 a month, twelve times over. `debts()` needs three payments

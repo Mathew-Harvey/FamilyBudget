@@ -99,6 +99,7 @@ spendingRouter.get('/merchants', async (req, res, next) => {
               min(t.merchant_key)                 as merchant_key,
               max(m.what_it_is)                   as what_it_is,
               bool_or(m.essential)                as essential,
+              max(m.ended_on)                     as ended_on,
               count(*)::int                       as transactions,
               count(distinct t.txn_date)::int     as days_paid,
               sum(-t.amount)                      as spent,
@@ -152,18 +153,28 @@ spendingRouter.get('/merchants/:key/transactions', async (req, res, next) => {
 // Naming a merchant, saying what it is, and marking it essential.
 spendingRouter.post('/merchants/:key', async (req, res, next) => {
   try {
-    const { display_name: displayName, what_it_is: whatItIs, essential, category_id: categoryId } = req.body ?? {};
+    const {
+      display_name: displayName, what_it_is: whatItIs, essential, category_id: categoryId,
+      // Finished with: cancelled, switched away from, or stopped using. The
+      // history stays and every total still shows it, it just stops being a
+      // guide to next month. Pass false to undo.
+      ended,
+    } = req.body ?? {};
     const { rows } = await query(
       `update merchants set
          display_name = coalesce($2, display_name),
          what_it_is   = coalesce($3, what_it_is),
          essential    = coalesce($4, essential),
          category_id  = coalesce($5, category_id),
+         ended_on     = case when $6::boolean is null then ended_on
+                             when $6 then coalesce(ended_on, current_date)
+                             else null end,
          source       = 'manual',
          updated_at   = now()
        where match_key = $1
        returning *`,
-      [req.params.key, displayName ?? null, whatItIs ?? null, essential ?? null, categoryId ?? null],
+      [req.params.key, displayName ?? null, whatItIs ?? null, essential ?? null, categoryId ?? null,
+       ended === undefined ? null : Boolean(ended)],
     );
     if (!rows.length) return res.status(404).json({ error: 'No such merchant' });
 

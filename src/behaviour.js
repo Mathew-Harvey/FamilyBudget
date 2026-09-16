@@ -115,7 +115,7 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
     `select coalesce(sum(-amount) filter (where to_own_debt), 0) as debt,
             coalesce(sum(-amount), 0) as total
        from budget_flows
-      where counts and amount < 0 and not one_off
+      where counts and amount < 0 and not one_off and not no_longer_expected
         and txn_date > current_date - $1::integer and txn_date <= current_date`,
     [rate.effective_days],
   );
@@ -193,7 +193,7 @@ async function discretionary({ since, before, client, by }) {
        left join merchants m on m.match_key = t.merchant_key
        left join categories cat on cat.id = t.category_id
        left join categories grp on grp.id = cat.parent_id
-      where t.counts and t.amount < 0 and not t.one_off
+      where t.counts and t.amount < 0 and not t.one_off and not t.no_longer_expected
         and t.txn_date >= $1::date - $2::integer`,
     [since, before],
   );

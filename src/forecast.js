@@ -81,11 +81,17 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
   // One offs are excluded. They really happened and they still appear in every
   // total, but a renovation is not a guide to next month, and leaving it in
   // meant the only defence was a window short enough to have forgotten it.
+  //
+  // Anything from a merchant marked as finished with is left out too. A
+  // cancelled insurer's premiums are real history and a bad guide to next
+  // month, and waiting for the window to forget them is two months of a
+  // forecast that is knowably wrong.
   const { rows } = await client.query(
     `select t.amount, coalesce(t.display_description, t.description) as label
        from budget_flows t
       where t.counts and t.amount < 0
         and not t.one_off
+        and not t.no_longer_expected
         and t.txn_date > current_date - $1::integer
         and t.txn_date <= current_date`,
     [days],
@@ -94,7 +100,7 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
   const { rows: [excluded] } = await client.query(
     `select coalesce(sum(-t.amount), 0) as total, count(*)::int as transactions
        from budget_flows t
-      where t.counts and t.amount < 0 and t.one_off
+      where t.counts and t.amount < 0 and (t.one_off or t.no_longer_expected)
         and t.txn_date > current_date - $1::integer
         and t.txn_date <= current_date`,
     [days],
@@ -132,8 +138,10 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
     total: fromCents(totalCents),
     committed: fromCents(committedCents),
     everyday: fromCents(everydayCents),
-    one_off_excluded: excluded.total,
-    one_off_transactions: excluded.transactions,
+    // Spending left out of the rate: one off purchases, and merchants that have
+    // been finished with. Reported rather than silently dropped.
+    not_expected_again: excluded.total,
+    not_expected_again_transactions: excluded.transactions,
     per_day_cents: Math.round(everydayCents / effectiveDays),
     per_day: fromCents(Math.round(everydayCents / effectiveDays)),
   };

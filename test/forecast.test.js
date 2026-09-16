@@ -21,11 +21,11 @@ beforeEach(async () => {
 after(closeTestPool);
 
 
-async function addTxn(pool, accountId, { date, cents, description = 'TEST', categoryId = null }) {
+async function addTxn(pool, accountId, { date, cents, description = 'TEST', categoryId = null, merchantKey = null }) {
   const { rows } = await pool.query(
-    `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, category_id, raw)
-     values ($1,$2,'posted',$3,$4,$5,$6,'{}'::jsonb) returning id`,
-    [accountId, `txn_${Math.random().toString(36).slice(2, 14)}`, date, description, centsToNumeric(cents), categoryId],
+    `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, category_id, merchant_key, raw)
+     values ($1,$2,'posted',$3,$4,$5,$6,$7,'{}'::jsonb) returning id`,
+    [accountId, `txn_${Math.random().toString(36).slice(2, 14)}`, date, description, centsToNumeric(cents), categoryId, merchantKey],
   );
   return rows[0].id;
 }
@@ -506,7 +506,7 @@ test('a one off is left out of the rate but kept in the totals', async () => {
   await pool.query('update transactions set one_off = true where id = $1', [reno]);
   const after = await everydaySpendRate(60, pool);
   assert.equal(numericToCents(after.per_day), 5000, 'marked as a one off, it stops setting the rate');
-  assert.equal(numericToCents(after.one_off_excluded), 3000000, 'and it is still reported, not hidden');
+  assert.equal(numericToCents(after.not_expected_again), 3000000, 'and it is still reported, not hidden');
 
   // It is still spending: every total and the Spending page must still show it.
   const { rows } = await pool.query(
@@ -580,4 +580,88 @@ test('a stale opening balance is reported rather than quietly trusted', async ()
     projection.warnings.some((warning) => warning.kind === 'stale_balance'),
     'nine days old is old enough to say so',
   );
+});
+
+test('a merchant finished with leaves the rate but stays in the history', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 1000000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  for (let i = 0; i <= 59; i++) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
+  }
+  // An insurer paid monthly, then changed.
+  for (const i of [5, 35, 55]) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -60000, description: 'OLD INSURER', merchantKey: 'OLD INSURER' });
+  }
+  await pool.query("insert into merchants (match_key, display_name, source) values ('OLD INSURER','Old insurer','auto')");
+
+  const before = await everydaySpendRate(60, pool);
+  assert.ok(numericToCents(before.per_day) > 5000, 'while it runs, it sets the rate');
+
+  await pool.query("update merchants set ended_on = current_date where match_key = 'OLD INSURER'");
+  const after = await everydaySpendRate(60, pool);
+  assert.equal(numericToCents(after.per_day), 5000, 'cancelled, it stops being a guide to next month');
+  assert.equal(numericToCents(after.not_expected_again), 180000, 'and it is reported, not hidden');
+
+  // It really happened, so every total still has it.
+  const { rows } = await pool.query(
+    'select coalesce(sum(-amount),0) as spent from budget_flows where counts and amount < 0',
+  );
+  assert.equal(numericToCents(rows[0].spent), 180000 + 60 * 5000);
+});
+
+test('detection does not resurrect a merchant that was finished with', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  for (const i of [5, 35, 65, 95]) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -60000, description: 'OLD INSURER MONTHLY', merchantKey: 'OLD INSURER' });
+  }
+  await pool.query("insert into merchants (match_key, display_name, source) values ('OLD INSURER','Old insurer','auto')");
+
+  await detectCommitments({ client: pool });
+  const { rows: found } = await pool.query("select active from commitments where match_key = $1", [matchKeyFor('OLD INSURER MONTHLY')]);
+  assert.equal(found.length, 1, 'a monthly bill is detected');
+
+  // Cancelled, then the next sync runs. Without the guard, the premiums still
+  // in the lookback would make it a live commitment again every time.
+  await pool.query("update merchants set ended_on = current_date where match_key = 'OLD INSURER'");
+  await pool.query('update commitments set active = false');
+  await detectCommitments({ client: pool });
+  const { rows: after } = await pool.query("select active from commitments where match_key = $1", [matchKeyFor('OLD INSURER MONTHLY')]);
+  assert.equal(after[0].active, false, 'it stays cancelled');
+});
+
+test('a detected commitment whose key no longer matches anything is stood down', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  for (const i of [5, 35, 65]) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -20000, description: 'REAL BILL MONTHLY' });
+  }
+  // A leftover from before the key definition changed. Its last_seen is recent,
+  // so the two cycles of grace never expires it, and it is projected forward
+  // while the same spending is also counted as everyday: double counted.
+  await pool.query(
+    `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
+                              occurrences, regularity, source, active)
+     values ('KEY FROM AN OLDER DEFINITION', 'Stale', '-43.71', 30, current_date, 5, 1, 'detected', true)`,
+  );
+  await detectCommitments({ client: pool });
+
+  const { rows } = await pool.query(
+    "select active from commitments where match_key = 'KEY FROM AN OLDER DEFINITION'",
+  );
+  assert.equal(rows[0].active, false, 'nothing matches it, so it is stale rather than late');
+
+  // And a manual one is left alone: it may be a future expense someone accepted.
+  await pool.query(
+    `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
+                              occurrences, regularity, source, active)
+     values ('NOT YET HAPPENED', 'A planned expense', '-100.00', 30, current_date + 30, 1, 1, 'manual', true)`,
+  );
+  await detectCommitments({ client: pool });
+  const { rows: manual } = await pool.query("select active from commitments where match_key = 'NOT YET HAPPENED'");
+  assert.equal(manual[0].active, true, 'a manual commitment is theirs, not detection to overrule');
 });

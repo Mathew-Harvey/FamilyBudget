@@ -65,7 +65,7 @@ function row({ title, note, amount, perMonth, max, onOpen, badge, rateIsReal = t
 }
 
 // The deepest level: the transactions themselves, plus what this place is.
-async function merchantDetail(key, displayName, whatItIs) {
+async function merchantDetail(key, displayName, whatItIs, ended = false) {
   const { transactions } = await api(
     `/api/spending/merchants/${encodeURIComponent(key)}/transactions?window=${windowDays()}`,
   );
@@ -73,12 +73,26 @@ async function merchantDetail(key, displayName, whatItIs) {
   const nameInput = el('input', { value: displayName ?? '', style: 'flex:1;min-width:8rem' });
   const whatInput = el('input', { value: whatItIs ?? '', placeholder: 'What is this place?', style: 'flex:2;min-width:10rem' });
   const save = el('button', { class: 'small primary', text: 'Save' });
+
+  // Cancelled, switched away from, or simply stopped. The spending stays in
+  // every total because it really happened; it just stops being counted as a
+  // guide to next month. Waiting for the window to forget it takes months, and
+  // the forecast is knowably wrong the whole time.
+  const endedBox = el('input', { type: 'checkbox' });
+  endedBox.checked = Boolean(ended);
+  const endedLabel = el('label', { class: 'muted', style: 'display:flex;gap:0.3rem;align-items:center' }, [
+    endedBox, el('span', { text: 'Finished with, do not expect it again' }),
+  ]);
   save.addEventListener('click', async () => {
     save.disabled = true;
     try {
       await api(`/api/spending/merchants/${encodeURIComponent(key)}`, {
         method: 'POST',
-        body: { display_name: nameInput.value || null, what_it_is: whatInput.value || null },
+        body: {
+          display_name: nameInput.value || null,
+          what_it_is: whatInput.value || null,
+          ended: endedBox.checked,
+        },
       });
       save.textContent = 'Saved';
       showError('');
@@ -89,7 +103,8 @@ async function merchantDetail(key, displayName, whatItIs) {
   });
 
   return [
-    el('div', { class: 'row', style: 'margin-bottom:0.4rem' }, [nameInput, whatInput, save]),
+    el('div', { class: 'row', style: 'margin-bottom:0.3rem' }, [nameInput, whatInput, save]),
+    el('div', { class: 'row', style: 'margin-bottom:0.4rem' }, [endedLabel]),
     el('table', { class: 'table-responsive' }, [
       el('tbody', {}, transactions.map((t) =>
         el('tr', {}, [
@@ -123,8 +138,8 @@ async function merchantRows(categoryId = null) {
       perMonth: (m.days_paid != null && m.days_paid < 3) ? m.spent : m.per_month,
       rateIsReal: !(m.days_paid != null && m.days_paid < 3),
       max,
-      badge: m.essential ? 'essential' : null,
-      onOpen: () => merchantDetail(m.merchant_key ?? m.merchant, m.merchant, m.what_it_is),
+      badge: m.ended_on ? 'finished with' : m.essential ? 'essential' : null,
+      onOpen: () => merchantDetail(m.merchant_key ?? m.merchant, m.merchant, m.what_it_is, Boolean(m.ended_on)),
     }),
   );
 }
