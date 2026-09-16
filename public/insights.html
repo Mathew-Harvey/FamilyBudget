@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insights</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h2>Insights</h2>
+  <p class="muted">Claude reads a snapshot of where you stand and says what matters. Account numbers are never sent, not even the ones banks bury inside a description.</p>
+  <div id="notice"></div>
+
+  <div class="card stack">
+    <div id="claudeState" class="muted"></div>
+    <div class="row">
+      <label class="row" style="margin:0"><input type="checkbox" id="enabled"> Analyse automatically</label>
+      <div><label for="cadence">Every</label><input id="cadence" type="number" style="width:5rem"> <span class="muted">days</span></div>
+      <div><label for="effort">Depth</label><select id="effort">
+        <option value="low">quick</option><option value="medium">medium</option>
+        <option value="high">thorough</option><option value="xhigh">very thorough</option>
+      </select></div>
+      <button id="saveSettings">Save</button>
+    </div>
+    <div class="row">
+      <input id="question" placeholder="Ask something, or leave blank for a general read" style="flex:1;min-width:14rem">
+      <button class="primary" id="run">Analyse now</button>
+      <a href="/api/analyst/snapshot" target="_blank" class="muted" style="align-self:center">See what gets sent</a>
+    </div>
+    <div class="muted" id="runState"></div>
+  </div>
+
+  <h2>Something coming up</h2>
+  <p class="muted">Tell it about a cost you know is coming, in plain words. It works out the shape and you decide whether to add it.</p>
+  <div class="card stack">
+    <div class="row">
+      <input id="plan" placeholder="Next week I'm getting a SmartRider card, probably $50 a week" style="flex:1;min-width:14rem">
+      <button class="primary" id="planButton">Work it out</button>
+    </div>
+    <div id="planResult"></div>
+  </div>
+
+  <h2>Debts and accounts we cannot see</h2>
+  <p class="muted">A credit card or loan that open banking does not reach. Enter it here so it counts, and update the balance when you check it.</p>
+  <div class="card stack">
+    <div class="filters">
+      <div><label for="mBank">Provider</label><input id="mBank" style="width:100%" placeholder="Bendigo"></div>
+      <div><label for="mName">What it is</label><input id="mName" style="width:100%" placeholder="Skye's credit card"></div>
+      <div><label for="mType">Type</label><select id="mType" style="width:100%">
+        <option value="credit_card">Credit card</option><option value="personal_loan">Personal loan</option>
+        <option value="savings">Savings</option><option value="transaction">Everyday</option>
+      </select></div>
+      <div><label for="mBalance">Amount owed</label><input id="mBalance" type="number" step="0.01" style="width:100%" placeholder="6500"></div>
+    </div>
+    <div class="row"><button class="primary" id="addAccount">Add it</button></div>
+    <div id="manualList"></div>
+  </div>
+
+  <h2>Recent analysis</h2>
+  <div id="history"><p class="muted">Loading...</p></div>
+</main>
+<script type="module" src="/insights.js"></script>
+</body>
+</html>

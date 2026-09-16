@@ -14,6 +14,9 @@ All five stages are built:
 4. Forecast and runway
 5. Email alerts
 
+Plus periodic analysis and predictive budgeting through the Claude API, and
+manual accounts for debts open banking cannot reach.
+
 ## Stack
 
 Node.js and Express, Postgres through `pg` with plain SQL and no ORM, and a
@@ -21,9 +24,10 @@ frontend of plain HTML, CSS and JavaScript served as static files by the same
 Express app. No framework, no build step, no bundler. Tests use the built in
 `node:test` runner.
 
-Five runtime dependencies: `express`, `pg`, `express-session`,
-`connect-pg-simple`, `bcryptjs`. No development dependencies. Email is sent with
-`fetch` against a provider's JSON API, so alerts add no package at all.
+Six runtime dependencies: `express`, `pg`, `express-session`,
+`connect-pg-simple`, `bcryptjs`, and `@anthropic-ai/sdk` for the analysis.
+No development dependencies. Email is sent with `fetch` against a provider's
+JSON API, so alerts add no package at all.
 
 ## Layout
 
@@ -42,10 +46,11 @@ src/         db.js         one shared pg pool, SSL and type parsers
              forecast.js   the projection and the runway
              alerts.js     what is worth saying, and when
              email.js      sending, with no dependency
+             analyst.js    the snapshot, and the Claude API
              auth.js       sessions, the gate, login
              server.js     the Express app
              routes/       one file per area
-public/      eight pages, plus styles.css and app.js
+public/      ten pages, plus styles.css and app.js
 test/        node:test suites and redacted fixtures
 ```
 
@@ -73,6 +78,8 @@ Fill in `.env`. It is gitignored and must never be committed.
 | `EMAIL_API_URL` | Optional. Defaults to Resend's endpoint. |
 | `EMAIL_API_KEY` | Optional. Alerts stay off until this and `ALERT_FROM` are set. |
 | `ALERT_FROM` | Optional. The address alerts are sent from. |
+| `ANTHROPIC_API_KEY` | Optional. Analysis stays off until this is set and switched on. |
+| `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-5`. |
 
 Then:
 
@@ -155,6 +162,7 @@ Environment variables:
 | `NODE_ENV` | `production` |
 | `EMAIL_API_KEY` | your provider's key, if you want alerts |
 | `ALERT_FROM` | the address alerts come from |
+| `ANTHROPIC_API_KEY` | your Anthropic key, if you want the analysis |
 
 Do **not** set `TEST_DATABASE_URL` on Render. It is a local only variable.
 
@@ -297,6 +305,38 @@ or not it was sent, so you can see what would have gone out.
 Email goes through any provider that accepts a JSON POST. The default url is
 Resend; set `EMAIL_API_URL` for a different one, plus `EMAIL_API_KEY` and
 `ALERT_FROM`.
+
+## Analysis and predictive budgeting
+
+The Insights page sends a snapshot of where the household stands to the Claude
+API and gets back a structured read: what is happening, what to do about it, and
+what costs look likely to land soon.
+
+Two other things it does:
+
+- **Tell it what is coming.** Describe a cost in plain words, for example "next
+  week I'm getting a SmartRider card, probably $50 a week". It works out the
+  amount and cadence, says what that would do to the runway, and you decide
+  whether to add it. Accepted proposals become ordinary manual commitments, so
+  the forecast needs no second idea of a future expense.
+- **Manual accounts.** A credit card or personal loan open banking cannot reach
+  is entered by hand with its balance. It counts as a debt, never as spendable
+  cash, and a sync never touches it.
+
+What is sent, and what is not:
+
+- Sent: balances, the runway, commitments, bucket state, category totals,
+  income streams, and transaction descriptions.
+- Never sent: account numbers. Not as a field, and not buried inside a bank
+  description either, where they routinely appear. Any run of four or more
+  digits in a description is replaced before the request leaves the machine.
+- The exact snapshot is stored with every answer, so a claim can always be
+  checked against the figures it was given. Read `GET /api/analyst/snapshot` to
+  see precisely what would be sent, before sending anything.
+
+It stays off until `ANTHROPIC_API_KEY` is set and it is switched on. Automatic
+analysis runs at the end of a sync, but only once per cadence, so a twice daily
+sync does not mean twice daily analysis.
 
 ## Security
 

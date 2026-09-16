@@ -10,7 +10,10 @@ data from Redbark, an Australian open banking aggregator, and our Postgres is
 the system of record: Redbark stores nothing on its side.
 
 **All five stages are built**: ingest and transfer detection, categories and
-rules, buckets and payday allocation, forecast and runway, email alerts.
+rules, buckets and payday allocation, forecast and runway, email alerts. On top
+of those, `src/analyst.js` runs periodic analysis and predictive budgeting
+through the Claude API, and accounts can be created by hand for debts open
+banking cannot reach.
 
 ## Engineering principles, non negotiable
 
@@ -50,6 +53,7 @@ src/         db.js          one shared pg pool, SSL and type parsers
              forecast.js    the projection and the runway
              alerts.js      what is worth saying, and when
              email.js       sending, with no dependency
+             analyst.js     the snapshot, and the Claude API
              auth.js        sessions, the gate, login
              server.js      the Express app
              routes/        one file per area
@@ -134,6 +138,19 @@ row looks changed on every run.
 **SQL inside a JavaScript template literal.** `\s` is not a valid escape there
 and silently becomes a plain `s`, so a whitespace class quietly turns into "runs
 of the letter s". Use POSIX classes like `[[:space:]]` in SQL strings.
+
+**Nothing that identifies an account is sent to the Claude API.** Not as a
+field, and not inside a description: banks put account and BSB numbers in the
+description text itself, so `scrubLabel` replaces runs of four or more digits
+before anything leaves the machine. Every new field added to the snapshot has to
+go through it. The snapshot is stored with each answer so claims can be checked.
+
+**Analysis is off by default and rate limited by cadence.** It costs money per
+run and sends financial data off the machine, so it never turns itself on, and
+a twice daily sync must not mean twice daily analysis.
+
+**Accepted expense proposals become ordinary manual commitments.** There is no
+separate "planned expense" concept to keep in step with the forecast.
 
 **There is one definition of a commitment's match key**, `matchKeyFor`, and
 `everydaySpendRate` groups in JavaScript so it can use it directly. An earlier

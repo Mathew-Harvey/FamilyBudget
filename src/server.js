@@ -14,6 +14,7 @@ import { rulesRouter } from './routes/rules.js';
 import { bucketsRouter } from './routes/buckets.js';
 import { forecastRouter } from './routes/forecast.js';
 import { alertsRouter } from './routes/alerts.js';
+import { analystRouter } from './routes/analyst.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -68,6 +69,7 @@ export function createApp() {
   app.use('/api/buckets', bucketsRouter);
   app.use('/api/forecast', forecastRouter);
   app.use('/api/alerts', alertsRouter);
+  app.use('/api/analyst', analystRouter);
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'accounts.html')));

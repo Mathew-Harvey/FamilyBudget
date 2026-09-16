@@ -72,6 +72,7 @@ export function renderNav(current) {
     ['/rules', 'Rules'],
     ['/buckets', 'Buckets'],
     ['/forecast', 'Forecast'],
+    ['/insights', 'Insights'],
     ['/alerts', 'Alerts'],
     ['/transfers', 'Transfers'],
     ['/sync', 'Sync'],

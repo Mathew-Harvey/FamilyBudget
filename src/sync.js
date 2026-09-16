@@ -12,6 +12,7 @@ import { detectTransfers } from './transfers.js';
 import { categoriseAll } from './categorise.js';
 import { detectCommitments } from './commitments.js';
 import { runAlerts } from './alerts.js';
+import { runPeriodicAnalysis } from './analyst.js';
 
 // How far back to re-read on a routine run, so late posting and edited rows are
 // caught.
@@ -361,6 +362,7 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     txns_categorised: 0,
     commitments_found: 0,
     alerts_sent: 0,
+    analysis_run: false,
   };
   const failures = [];
 
@@ -434,6 +436,16 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     totals.commitments_found = await detectCommitments({ pool: dbPool });
     log(`commitments: ${totals.commitments_found} recurring outgoings`);
 
+    // Analysis before alerts, so an alert can mention a fresh finding. It only
+    // actually calls out when it is switched on and the cadence has come round.
+    try {
+      const analysis = await runPeriodicAnalysis({ pool: dbPool });
+      totals.analysis_run = analysis.ran;
+      log(`analysis: ${analysis.ran ? 'ran' : `skipped, ${analysis.reason}`}`);
+    } catch (err) {
+      failures.push(`analysis: ${err.message}`);
+    }
+
     // Alerts go last, so they see everything this run changed. A failure to
     // send must never fail the sync.
     try {
@@ -450,7 +462,7 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
          finished_at = now(), status = $2, accounts_synced = $3, txns_inserted = $4,
          txns_updated = $5, pending_resolved = $6, pending_expired = $7,
          transfers_detected = $8, txns_categorised = $9, commitments_found = $10,
-         alerts_sent = $11, error_message = $12
+         alerts_sent = $11, analysis_run = $12, error_message = $13
        where id = $1`,
       [
         runId,
@@ -464,6 +476,7 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
         totals.txns_categorised,
         totals.commitments_found,
         totals.alerts_sent,
+        totals.analysis_run,
         failures.length ? failures.join('\n') : null,
       ],
     );
