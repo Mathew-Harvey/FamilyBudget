@@ -13,6 +13,11 @@ types.setTypeParser(1700, (value) => value);
 // and we want numbers, so parse those.
 types.setTypeParser(20, (value) => (value === null ? null : Number(value)));
 
+// A date column would otherwise become a JavaScript Date built in the server's
+// local timezone, which can move a transaction a day either way. Keep the
+// YYYY-MM-DD string the database sent. 1082 is the date type oid.
+types.setTypeParser(1082, (value) => value);
+
 // Render gives two urls for the same database. The internal one is a bare
 // hostname on the private network (dpg-xxxx-a), the external one is a fully
 // qualified name (dpg-xxxx-a.region-postgres.render.com) reached over the

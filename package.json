@@ -13,7 +13,7 @@
     "sync": "node --env-file-if-exists=.env src/sync.js",
     "discover": "node --env-file-if-exists=.env scripts/discover.js",
     "create-user": "node --env-file-if-exists=.env scripts/create-user.js",
-    "test": "node --env-file-if-exists=.env --test test/"
+    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/*.test.js\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

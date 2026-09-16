@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h2>Sync</h2>
+  <p class="muted">Reads the banks through Redbark and updates this database. The cron job does this twice a day, this button does it now.</p>
+  <div id="notice"></div>
+  <div class="card row">
+    <button class="primary" id="run">Sync now</button>
+    <span class="muted" id="state"></span>
+  </div>
+  <h2>Last 20 runs</h2>
+  <div class="card"><div id="runs"><p class="muted">Loading...</p></div></div>
+</main>
+<script type="module" src="/sync.js"></script>
+</body>
+</html>

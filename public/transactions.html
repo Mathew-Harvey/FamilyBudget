@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transactions</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h2>Transactions</h2>
+  <div id="notice"></div>
+  <div class="card">
+    <div class="filters">
+      <div><label for="account">Account</label><select id="account" style="width:100%"><option value="">All</option></select></div>
+      <div><label for="from">From</label><input id="from" type="date" style="width:100%"></div>
+      <div><label for="to">To</label><input id="to" type="date" style="width:100%"></div>
+      <div><label for="status">Status</label><select id="status" style="width:100%">
+        <option value="">All</option><option value="posted">Posted</option><option value="pending">Pending</option>
+      </select></div>
+      <div><label for="transfer">Transfers</label><select id="transfer" style="width:100%">
+        <option value="">All</option><option value="true">Transfers only</option><option value="false">Exclude transfers</option>
+      </select></div>
+      <div><label for="search">Description</label><input id="search" type="search" placeholder="contains..." style="width:100%"></div>
+    </div>
+    <div class="row" style="margin-top:0.75rem">
+      <button class="primary" id="apply">Apply</button>
+      <button id="reset">Reset</button>
+      <span class="muted" id="summary"></span>
+    </div>
+  </div>
+  <div class="card"><div id="list"><p class="muted">Loading...</p></div></div>
+  <div class="row"><button id="more" style="display:none">Load more</button></div>
+</main>
+<script type="module" src="/transactions.js"></script>
+</body>
+</html>
