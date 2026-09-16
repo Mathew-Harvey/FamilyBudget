@@ -34,12 +34,17 @@ const fromCents = centsToNumeric;
 const parse = (value) => Date.parse(`${String(value).slice(0, 10)}T00:00:00Z`);
 
 // A date a person can picture, which is the whole point of using one.
-export function friendlyDate(iso) {
+export function friendlyDate(iso, from = null) {
   if (!iso) return null;
   const date = new Date(parse(iso));
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
-  return `${date.getUTCDate()} ${months[date.getUTCMonth()]}`;
+  const plain = `${date.getUTCDate()} ${months[date.getUTCMonth()]}`;
+  // The year only when it is not this one. A runway date is weeks away and
+  // reads better without it, but a debt that clears in 2029 written as
+  // "26 August" is worse than useless, it is wrong by three years.
+  const thisYear = new Date(parse(from ?? householdToday())).getUTCFullYear();
+  return date.getUTCFullYear() === thisYear ? plain : `${plain} ${date.getUTCFullYear()}`;
 }
 
 // What a recurring cost is really worth, in the three units that matter.
@@ -96,6 +101,25 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
        from commitments where active`,
   );
 
+  // Living, and paying down what we owe. Both leave the account, so the runway
+  // is the same either way, but they are not the same kind of thing: one is
+  // consumed and one buys down a liability. Reporting a single "going out"
+  // figure is true and useless, because a third of it is not a monthly choice
+  // and none of it can be trimmed the way the rest can.
+  // Measured as a share of what went out rather than as its own total, then
+  // applied to the figure the runway is actually built from. Two independent
+  // measurements of the same quantity disagree by a fraction of a percent and
+  // then visibly fail to add up on the page, which reads as a bug and costs
+  // more than the precision is worth. One total, split proportionally.
+  const { rows: [share] } = await client.query(
+    `select coalesce(sum(-amount) filter (where to_own_debt), 0) as debt,
+            coalesce(sum(-amount), 0) as total
+       from budget_flows
+      where counts and amount < 0 and not one_off
+        and txn_date > current_date - $1::integer and txn_date <= current_date`,
+    [rate.effective_days],
+  );
+
   const everydayMonthly = Math.round((toCents(rate.everyday) * MONTH_DAYS) / rate.effective_days);
   const committedMonthly = toCents(committed.per_month);
   const outMonthly = everydayMonthly + committedMonthly;
@@ -111,6 +135,11 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
     .reduce((total, stream) => total + Math.round((toCents(stream.amount) * MONTH_DAYS) / Number(stream.cadence_days || 30)), 0);
   const inMonthly = cycleMonthly + streamsMonthly;
 
+  const totalCents = toCents(share.total);
+  const debtMonthly = totalCents > 0
+    ? Math.round((outMonthly * toCents(share.debt)) / totalCents)
+    : 0;
+
   const gapMonthly = outMonthly - inMonthly;
   const dailyGapCents = Math.max(Math.round(gapMonthly / MONTH_DAYS), 0);
 
@@ -122,6 +151,8 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
     out_per_month: fromCents(outMonthly),
     everyday_per_month: fromCents(everydayMonthly),
     committed_per_month: fromCents(committedMonthly),
+    living_per_month: fromCents(outMonthly - debtMonthly),
+    debt_per_month: fromCents(debtMonthly),
     // Positive means going backwards. Named gap rather than deficit because
     // one of those is a word people read and the other is a word they skip.
     gap_per_month: fromCents(gapMonthly),
@@ -469,6 +500,72 @@ export async function intentions({ client = { query } } = {}) {
       charges_since: charges,
       last_charge: hits[0]?.last ?? null,
       verdict,
+    };
+  });
+}
+
+// What is owed, what it is being serviced at, and when each one is gone.
+//
+// A balance is a number you get used to. A date it disappears is not, and it is
+// the same fact. The small debts are the motivating ones here: the mortgage is
+// a thirty year fixture, but the solar battery and the cards clear inside a
+// couple of years at the current rate, and seeing that is worth more than
+// seeing the total.
+//
+// The payoff date ignores interest, which is honest for the interest free
+// finance and optimistic for a credit card. It says so rather than pretending
+// to an accuracy it does not have: the real schedule depends on a rate this app
+// is not told.
+export async function debts({ client = { query }, window = 120 } = {}) {
+  const { rows } = await client.query(
+    `select a.id, a.name, a.role, a.bank,
+            b.balance,
+            round(coalesce(d.per_month, 0), 2) as per_month
+       from accounts a
+       left join lateral (
+         select balance from balances where account_id = a.id
+          order by balance_date desc limit 1
+       ) b on true
+       left join lateral (
+         select sum(-t.amount) * 30.44 / $1::integer as per_month
+           from budget_flows t
+           left join merchants m on m.match_key = t.merchant_key
+          where t.counts and t.to_own_debt
+            and t.txn_date > current_date - $1::integer
+            and (m.pays_account_id = a.id
+                 or t.internal_to_account_id = a.id
+                 or exists (
+                   select 1 from transactions p
+                    where p.id = t.transfer_pair_id and p.account_id = a.id
+                 ))
+       ) d on true
+      where not a.is_liquid
+      order by b.balance nulls last`,
+    [window],
+  );
+
+  const now = Date.parse(`${householdToday()}T00:00:00Z`);
+  return rows.map((row) => {
+    const owedCents = Math.abs(toCents(row.balance ?? 0));
+    const perMonthCents = toCents(row.per_month ?? 0);
+    const months = perMonthCents > 0 && owedCents > 0 ? owedCents / perMonthCents : null;
+    // Anything past about a decade is a fixture, not a countdown, and putting a
+    // date on it would be false precision about a rate that will change.
+    const clearedOn = months !== null && months < 120
+      ? new Date(now + months * 30.44 * DAY_MS).toISOString().slice(0, 10)
+      : null;
+    return {
+      account_id: row.id,
+      name: row.name,
+      role: row.role,
+      owed: fromCents(owedCents),
+      owed_cents: owedCents,
+      per_month: fromCents(perMonthCents),
+      months_left: months === null ? null : Math.round(months),
+      cleared_on: clearedOn,
+      cleared_on_friendly: clearedOn ? friendlyDate(clearedOn) : null,
+      // A card with no balance is a line of credit being kept open, not a debt.
+      unused_credit_line: owedCents === 0 && perMonthCents > 0,
     };
   });
 }

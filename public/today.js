@@ -61,6 +61,13 @@ function headline(position) {
       el('div', {}, [
         el('div', { class: 'muted', text: 'Going out' }),
         el('div', { class: 'amount out', style: 'font-size:1.1rem', text: `${money(position.out_per_month)} a month` }),
+        // Split, because these are not the same kind of thing. Both leave the
+        // account and both shorten the runway, but one is consumed and one buys
+        // down what is owed, and only one of them is a monthly choice.
+        position.debt_per_month && Number(position.debt_per_month) > 0
+          ? el('div', { class: 'muted', style: 'font-size:0.8rem', text:
+              `${money(position.living_per_month)} living, ${money(position.debt_per_month)} paying down debt` })
+          : null,
       ]),
       el('div', {}, [
         el('div', { class: 'muted', text: 'Short by' }),
@@ -171,6 +178,61 @@ function moversSection(data) {
       'Left out because they are paid too rarely to compare: '
       + data.irregular.map((row) => `${row.place} ${formatAmount(row.spent)}`).join(', ')
       + '. Real money, but not a change in habit.' }));
+  }
+  box.append(card);
+}
+
+// What is owed, and when each one disappears.
+//
+// The mortgage is a fixture and is shown as one. The small debts are the
+// motivating ones: each has a date it is gone and an amount that comes back
+// every month afterwards, which is the same fact as the balance but in the unit
+// that makes it feel finite.
+function debtsSection(list) {
+  const box = document.getElementById('debts');
+  box.innerHTML = '';
+  if (!list?.length) return;
+
+  const owing = list.filter((row) => Number(row.owed) > 0);
+  if (!owing.length) return;
+
+  const rows = owing.map((row) => el('div', {
+    style: 'display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.1rem 0.6rem;'
+      + 'padding:0.5rem 0;border-bottom:1px solid var(--line)',
+  }, [
+    el('div', { class: 'truncate', style: 'font-weight:500', text: row.name }),
+    el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: money(row.owed) }),
+    el('div', { class: 'muted', style: 'font-size:0.8rem', text:
+      row.cleared_on_friendly
+        ? `Gone ${row.cleared_on_friendly}, then ${money(row.per_month)} a month comes back`
+        : 'Long term, not a countdown' }),
+    el('div', { class: 'muted', style: 'text-align:right;white-space:nowrap;font-size:0.8rem',
+      text: Number(row.per_month) > 0 ? `${money(row.per_month)} a month` : '' }),
+  ]));
+
+  const card = el('div', { class: 'card stack' }, [
+    el('h3', { style: 'margin:0', text: 'What you owe' }),
+    el('div', { class: 'muted', text: 'Paying these down is not spending, it is moving money from one column to the other. It still leaves the account, so it still shortens the runway.' }),
+    el('div', {}, rows),
+  ]);
+
+  // The near ones, with what clearing them gives back.
+  const soon = owing.filter((row) => row.months_left !== null && row.months_left <= 24);
+  if (soon.length) {
+    const freed = soon.reduce((total, row) => total + Number(String(row.per_month).replace(/[^0-9.]/g, '')), 0);
+    card.append(el('p', { class: 'good', style: 'margin:0.3rem 0 0;font-weight:600', text:
+      `${soon.map((row) => `${row.name.split(',')[0]} clears ${row.cleared_on_friendly}`).join(', ')}. `
+      + `That is ${formatAmount(freed.toFixed(2))} a month back.` }));
+    card.append(el('p', { class: 'muted', style: 'margin:0', text:
+      'Dates assume the current payment and ignore interest, so they are right for interest free finance and optimistic for a card.' }));
+  }
+
+  // A card carried at zero is a line of credit, not a debt.
+  const lines = list.filter((row) => row.unused_credit_line);
+  if (lines.length) {
+    card.append(el('p', { class: 'muted', style: 'margin:0.2rem 0 0', text:
+      `${lines.map((row) => row.name).join(', ')}: nothing owing, kept open as a line of credit. `
+      + 'The runway below does not count it, so there is more room than the date suggests.' }));
   }
   box.append(card);
 }
@@ -358,6 +420,7 @@ async function load() {
     headline(data.position);
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
+    debtsSection(data.debts);
     // The costs double as the list of things a decision can watch, so they are
     // fetched before the decisions box is drawn.
     const costs = await api('/api/today/what-to-stop?limit=40');

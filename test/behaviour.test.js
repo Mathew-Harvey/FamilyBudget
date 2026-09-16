@@ -30,8 +30,12 @@ async function addTxn(pool, accountId, { date, cents, description = 'TEST', cate
 }
 
 test('a date is rendered as something a person can picture', () => {
-  assert.equal(friendlyDate('2026-11-23'), '23 November');
-  assert.equal(friendlyDate('2027-01-07'), '7 January');
+  // This year needs no year on it, and a runway date reads better without one.
+  assert.equal(friendlyDate('2026-11-23', '2026-09-16'), '23 November');
+  // Another year does need it. A debt clearing in 2029 written as "26 August"
+  // is not merely terse, it is wrong by three years.
+  assert.equal(friendlyDate('2027-01-07', '2026-09-16'), '7 January 2027');
+  assert.equal(friendlyDate('2029-08-26', '2026-09-16'), '26 August 2029');
   assert.equal(friendlyDate(null), null);
 });
 

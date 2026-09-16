@@ -41,6 +41,58 @@ function defaultIsLiquid(type) {
 export async function upsertAccounts(client, redbarkAccounts) {
   const ids = [];
   for (const account of redbarkAccounts) {
+    // Two ways the same account can already be here.
+    //
+    // By its Redbark id, which is the ordinary case, and by its number at its
+    // bank, which is what saves us when a connection is relinked. Relinking
+    // reissues every account id behind that connection, and consent expires
+    // yearly, so this is routine rather than exotic. Matching only on the
+    // Redbark id would insert a second copy of an account we already have and
+    // quietly orphan the original, along with its transactions, its balances,
+    // and the is_liquid and role settings the forecast is built on.
+    //
+    // The same path adopts an account that was created by hand and is later
+    // served by open banking: it keeps its id, so its balance, its role and
+    // anything pointing at it all survive.
+    const { rows: existing } = await client.query(
+      `select id from accounts
+        where redbark_account_id = $1
+           or (masked_number is not null and masked_number = $2 and bank = $3)
+        limit 1`,
+      [account.id, account.account_number ?? null, account.institution?.name ?? 'Unknown'],
+    );
+
+    if (existing.length) {
+      const { rows: updated } = await client.query(
+        `update accounts set
+           source                = 'redbark',
+           redbark_connection_id = $2,
+           redbark_account_id    = $3,
+           bank                  = $4,
+           name                  = case when source = 'manual' then name else $5 end,
+           masked_number         = coalesce($6, masked_number),
+           type                  = $7,
+           currency              = $8,
+           status                = $9,
+           updated_at            = now()
+         where id = $1
+         returning id`,
+        [
+          existing[0].id,
+          account.connection,
+          account.id,
+          account.institution?.name ?? 'Unknown',
+          account.name,
+          account.account_number,
+          account.type,
+          account.currency ?? 'aud',
+          account.status,
+        ],
+      );
+      ids.push({ accountId: updated[0].id, redbarkAccountId: account.id, name: account.name });
+      continue;
+    }
+
     const result = await client.query(
       `insert into accounts (
          source, redbark_connection_id, redbark_account_id, bank, name,

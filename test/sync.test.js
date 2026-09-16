@@ -318,3 +318,71 @@ test('the redacted fixtures parse and map cleanly', async () => {
   assert.ok(fixtures.some((t) => t.status === 'pending'), 'fixtures must keep pending rows');
   assert.ok(fixtures.some((t) => t.amount.amount === 0), 'fixtures must keep a zero amount row');
 });
+
+test('relinking a connection repoints the account instead of duplicating it', async () => {
+  const pool = await getTestPool();
+
+  // The account as it arrived the first time, then set up the way a person
+  // would: spendable, with a role, and carrying history.
+  const before = [{
+    id: 'acct_old', connection: 'conn_old', account_number: 'xxxx9529', type: 'transaction',
+    name: 'ING Australia Orange Everyday', currency: 'aud', status: 'available',
+    institution: { name: 'ING BANK (Australia) Ltd' },
+  }];
+  const [first] = await upsertAccounts(pool, before);
+  await pool.query("update accounts set is_liquid = true, role = 'joint_everyday' where id = $1", [first.accountId]);
+
+  // Consent is renewed, the connection is relinked, and every account behind it
+  // comes back with an id we have never seen. Only the number is the same.
+  const after = [{ ...before[0], id: 'acct_new', connection: 'conn_new' }];
+  const [second] = await upsertAccounts(pool, after);
+
+  assert.equal(second.accountId, first.accountId, 'it has to be the same account row');
+
+  const { rows } = await pool.query(
+    "select id, redbark_account_id, redbark_connection_id, is_liquid, role from accounts where masked_number = 'xxxx9529'",
+  );
+  assert.equal(rows.length, 1, 'one account, not two');
+  assert.equal(rows[0].redbark_account_id, 'acct_new', 'pointed at the new id');
+  assert.equal(rows[0].redbark_connection_id, 'conn_new');
+  // The settings the whole forecast depends on. Losing these is how this fails
+  // silently: spendable cash gets read off a new empty row and nothing errors.
+  assert.equal(rows[0].is_liquid, true, 'is_liquid survives');
+  assert.equal(rows[0].role, 'joint_everyday', 'and so does the role');
+});
+
+test('an account entered by hand is adopted when open banking starts serving it', async () => {
+  const pool = await getTestPool();
+
+  // A debt that open banking could not reach, entered by hand with a balance.
+  const { rows: [manual] } = await pool.query(
+    `insert into accounts (source, bank, name, masked_number, is_liquid, role)
+     values ('manual', 'ING BANK (Australia) Ltd', 'ING personal loan', 'xxxx8937', false, 'personal_loan')
+     returning id`,
+  );
+  await pool.query(
+    `insert into balances (account_id, balance_date, balance) values ($1, current_date, '-11150.00')`,
+    [manual.id],
+  );
+
+  const [adopted] = await upsertAccounts(pool, [{
+    id: 'acct_loan', connection: 'conn_new', account_number: 'xxxx8937', type: 'loan',
+    name: 'ING Australia Personal Loan', currency: 'aud', status: 'available',
+    institution: { name: 'ING BANK (Australia) Ltd' },
+  }]);
+
+  assert.equal(adopted.accountId, manual.id, 'the same row, now connected');
+
+  const { rows } = await pool.query(
+    `select a.name, a.role, a.is_liquid, a.redbark_account_id, b.balance
+       from accounts a
+       left join balances b on b.account_id = a.id
+      where a.masked_number = 'xxxx8937'`,
+  );
+  assert.equal(rows.length, 1, 'one account, not two');
+  assert.equal(rows[0].redbark_account_id, 'acct_loan');
+  assert.equal(rows[0].is_liquid, false, 'a loan is not spendable cash');
+  assert.equal(rows[0].role, 'personal_loan', 'the role someone set is theirs');
+  assert.equal(rows[0].name, 'ING personal loan', 'and so is the name they gave it');
+  assert.equal(numericToCents(rows[0].balance), -1115000, 'the balance they entered survives');
+});

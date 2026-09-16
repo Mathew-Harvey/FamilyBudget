@@ -189,6 +189,31 @@ moment one changed: commitments stopped matching and were counted twice, once as
 a commitment and again as everyday spending, which made the runway look far
 shorter than it was. Do not reintroduce a second copy of that logic in SQL.
 
+**An account is identified by its number at its bank, not by its Redbark id.**
+Relinking a connection reissues every account id behind it, and CDR consent
+expires yearly so this is routine. `upsertAccounts` matches on
+`redbark_account_id` **or** on bank plus masked number, or a relink inserts
+duplicates and orphans the originals along with their transactions, balances,
+`is_liquid` and roles. Nothing errors when that happens: spendable cash is
+simply read off the new empty rows. The same path adopts a hand entered account
+when open banking starts serving it, keeping the name, role and balance someone
+set.
+
+**Paying down debt is not spending, but it is still cash out.**
+`budget_flows.to_own_debt` marks money leaving a liquid account for one of our
+own non liquid accounts, found through a matched counterpart, through the
+account number in the description, or through `merchants.pays_account_id` for
+the hand entered debts that have no counterpart row. It does not change
+`counts`: the cash really leaves and the runway is right to include it. It
+exists so the Today page can say 12,000 of living and 5,900 of debt servicing
+rather than one useless 17,900.
+
+**The split is a share of one total, never a second measurement.** Measuring
+"what goes out" twice, once from the rate and once from the flows, gives two
+answers a fraction of a percent apart that then visibly fail to add up on the
+page. Take the debt share from the flows and apply it to the figure the runway
+is built from.
+
 **Spending rates exclude one offs, and divide by the days there is history
 for.** A renovation or a new engine is real spending and shows in every total,
 but it is not a guide to next month, so `transactions.one_off` keeps it out of

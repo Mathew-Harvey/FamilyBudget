@@ -3,7 +3,7 @@
 // page exists at all when the Forecast page already has the numbers.
 import { Router } from 'express';
 import { query } from '../db.js';
-import { position, didItStick, movers, tradeOff, whatToStop, intentions } from '../behaviour.js';
+import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts } from '../behaviour.js';
 import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 
 export const behaviourRouter = Router();
@@ -62,6 +62,7 @@ behaviourRouter.get('/', async (req, res, next) => {
       stuck: since ? await didItStick({ since }) : null,
       movers: since ? await movers({ since }) : null,
       intentions: await intentions(),
+      debts: await debts(),
     });
   } catch (err) {
     next(err);
