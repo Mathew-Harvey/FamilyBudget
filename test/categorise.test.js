@@ -132,6 +132,58 @@ test('the provider category is the fallback when no rule matches', async () => {
   assert.equal(result.category_source, 'provider', 'the bank label is weaker than a rule');
 });
 
+// The bank files anything that arrived by bank transfer as TRANSFER_IN,
+// including cheque deposits, PayPal refunds and money from relatives. Calling
+// those an internal transfer claims the money was already ours, which is a claim
+// only pairing can support.
+test('the provider cannot call something a transfer when nothing pairs with it', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool);
+  const internal = await makeCategory(pool, 'Internal transfer', { kind: 'transfer' });
+  await pool.query('insert into provider_category_map (provider_category, category_id) values ($1, $2)', [
+    'TRANSFER_IN',
+    internal.id,
+  ]);
+
+  const id = await addTxn(pool, account.id, {
+    description: 'AUSTRALIA POST CHEQUE DEPOSIT',
+    cents: 1250000,
+    provider: 'TRANSFER_IN',
+  });
+  await categoriseAll({ pool });
+
+  const result = await categoryOf(pool, id);
+  assert.equal(result.name, null, 'an unproven transfer is left for a rule or a person');
+  assert.equal(result.category_source, null);
+});
+
+test('the provider transfer category stands once the counterpart is found', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx9529' });
+  const savings = await makeAccount(pool, { masked_number: 'xxxx4047' });
+  const internal = await makeCategory(pool, 'Internal transfer', { kind: 'transfer' });
+  await pool.query('insert into provider_category_map (provider_category, category_id) values ($1, $2)', [
+    'TRANSFER_IN',
+    internal.id,
+  ]);
+
+  const credit = await addTxn(pool, savings.id, {
+    description: 'INTERNAL TRANSFER',
+    cents: 50000,
+    provider: 'TRANSFER_IN',
+  });
+  const debit = await addTxn(pool, everyday.id, {
+    description: 'INTERNAL TRANSFER TO LINKED ING ACCOUNT',
+    cents: -50000,
+  });
+  await pool.query('update transactions set is_transfer = true, transfer_pair_id = $2 where id = $1', [credit, debit]);
+
+  await categoriseAll({ pool });
+  const result = await categoryOf(pool, credit);
+  assert.equal(result.name, 'Internal transfer');
+  assert.equal(result.category_source, 'provider');
+});
+
 test('a rule beats the provider category', async () => {
   const pool = await getTestPool();
   const account = await makeAccount(pool);

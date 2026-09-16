@@ -88,15 +88,19 @@ export async function categoriseAll(options = {}) {
     ).rows;
 
     const providerMap = new Map(
-      (await client.query('select provider_category, category_id from provider_category_map')).rows.map(
-        (row) => [row.provider_category, row.category_id],
-      ),
+      (
+        await client.query(
+          `select pcm.provider_category, pcm.category_id, c.kind
+             from provider_category_map pcm
+             left join categories c on c.id = pcm.category_id`,
+        )
+      ).rows.map((row) => [row.provider_category, row]),
     );
 
     const { rows: transactions } = await client.query(
       `select id, account_id, description, merchant_name, reference, extended_description,
               provider_category, category_id, category_source, categorised_by_rule_id,
-              display_description, note,
+              display_description, note, transfer_pair_id, internal_to_account_id,
               (amount * 100)::bigint as amount_cents
          from transactions
         where category_source is distinct from 'manual'`,
@@ -123,9 +127,24 @@ export async function categoriseAll(options = {}) {
       }
 
       // No rule set a category, so fall back to what the bank called it.
+      //
+      // With one exception. A transfer category asserts the money moved between
+      // two accounts we own, and the bank cannot know that: ING files cheque
+      // deposits, PayPal refunds, reversed ATM withdrawals and money from
+      // relatives all as TRANSFER_IN. That claim is only ours to make once
+      // pairing found the counterpart or the description named one of our
+      // accounts, so without either the provider's word is refused and the row
+      // is left uncategorised for a rule or a person. A rule or a manual choice
+      // still stands: those are somebody saying so rather than the bank
+      // guessing. Nothing about the budget maths moves either way, because
+      // budget_flows decides what counts from the pairing, never the category.
       if (!categoryId && txn.provider_category && providerMap.has(txn.provider_category)) {
-        categoryId = providerMap.get(txn.provider_category);
-        source = 'provider';
+        const mapped = providerMap.get(txn.provider_category);
+        const provenTransfer = txn.transfer_pair_id || txn.internal_to_account_id;
+        if (mapped.kind !== 'transfer' || provenTransfer) {
+          categoryId = mapped.category_id;
+          source = 'provider';
+        }
       }
 
       const same =

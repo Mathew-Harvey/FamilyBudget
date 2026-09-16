@@ -250,6 +250,41 @@ amount. Pairing is strict and one to one, charges before credits within a day
 ordering by a random uuid), and a credit that already has a pair is skipped or
 every sync silently reshuffles which charges counted.
 
+**Transfer detection covers all unpaired history, not a rolling window.** It
+used to look back 400 days, which left every first run permanently half
+explained: the backfill reaches about seven years, so no transfer older than the
+window was ever offered a counterpart. One side of each was still kept out of
+the budget by `resolveInternalDestinations`, which reads the destination out of
+the description and has no date limit, while the other side counted as money in.
+On this household that was 353,000 dollars of internal transfers netting to a
+353,000 dollar hole. The Transfers page could not rescue it either, because
+`listCandidates` loads through the same `loadState`, so the pairs a person needed
+to confirm were never shown. There is no window to tune: only unpaired rows are
+read, and whether two rows are equal, opposite and three days apart does not
+depend on their age.
+
+**A row already explained one way must be refused by the other, in both
+directions.** `resolveReversals` skips rows that are transfers, so `loadState`
+has to skip rows that are refunds. Guarding only one way looks sufficient
+because a sync pairs transfers before refunds, and that holds on the first run
+and never again: every later run sees the refund pairs the one before it wrote.
+A 24 cent international transaction fee, already cancelled by its own refund,
+was taken as a transfer against an unrelated 24 cent credit on another account.
+Nothing errors when that happens, the pair simply stops netting to zero.
+
+**The provider does not get to say something is a transfer.** A transfer
+category asserts the money moved between two accounts we own, and the bank
+cannot know that: ING files cheque deposits, PayPal refunds, reversed ATM
+withdrawals and money from relatives all as `TRANSFER_IN`. `categoriseAll`
+refuses a provider mapping of kind `transfer` unless pairing or
+`internal_to_account_id` proved it, and leaves the row uncategorised for a rule
+or a person. A rule or a manual choice still stands, because those are somebody
+saying so rather than the bank guessing. No budget figure moves either way,
+since `budget_flows` decides what counts from the pairing and never from the
+category, but the label was claiming 375,000 dollars of outside money was
+already ours. It also hid 132,000 dollars from the Spending page, which excludes
+transfer kinds while the spend rate does not.
+
 **A cost that has been cancelled stops being forecast.** `merchants.ended_on`
 keeps a merchant's spending in the history and in every total and out of every
 rate, which is what `transactions.one_off` does for a purchase. Waiting for
@@ -346,6 +381,17 @@ actually left is named commitment by commitment rather than shrugged at. It also
 reads the source to check that every query summing money in still filters on the
 income kind, because a future edit dropping that filter would pass every other
 check. Run it after changing anything about what counts.
+
+**A check has to assert something that can actually hold.** Reconcile used to
+require that everything moved between our own accounts nets to zero, over a
+bucket holding two different things: matched pairs, which have both sides by
+construction and must net exactly, and destinations read out of a description,
+which exist precisely because the other side is not in the data and so can never
+net. One number covering both meant a real imbalance and a gap in the bank's own
+reporting were indistinguishable, and the check could not be satisfied however
+correct the code was. They are separate now: the pairs must net to zero, and the
+one sided ones are held to a materiality threshold with the amount named, since
+that is money kept out of the budget on a description alone.
 
 ## Design decisions worth keeping
 

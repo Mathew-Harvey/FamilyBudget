@@ -79,7 +79,7 @@ const { rows: buckets } = await query(`
     when exists (select 1 from transactions r where r.reversal_of_id = tx.id)
                                                       then 'not counted, a charge that was refunded'
     when is_transfer and transfer_pair_id is not null  then 'not counted, moved between our own accounts'
-    when internal_to_account_id is not null           then 'not counted, moved between our own accounts'
+    when internal_to_account_id is not null           then 'not counted, moved to our own account, on the description alone'
     else 'UNEXPLAINED' end as bucket,
     count(*)::int as n, round(sum(amount), 2) as total
   from tx group by 1 order by 3`);
@@ -95,11 +95,31 @@ const bucketSum = buckets.reduce((sum, row) => sum + Number(row.total), 0);
 check('the buckets sum to the raw total', Math.abs(bucketSum - Number(raw.total)) < 0.01,
   `${money(bucketSum)} against ${money(raw.total)}`);
 
-// 3. Money moved between our own accounts has to net to nothing. If it does
-//    not, one side is being counted and the other is not.
+// 3. A matched pair holds both of its sides by construction, so it has to net to
+//    nothing. If it does not, one side is being counted and the other is not.
 const paired = buckets.find((row) => row.bucket === 'not counted, moved between our own accounts');
-check('moving money between our own accounts nets to zero',
+check('a matched pair of our own accounts nets to zero',
   !paired || Math.abs(Number(paired.total)) < 0.01, paired ? money(paired.total) : 'none');
+
+// A destination read out of the description is one sided on purpose: it is there
+// for the moves whose other side never arrived, because the account is not
+// connected or the bank never reported it. Requiring that to net to zero asserts
+// something the mechanism cannot satisfy, and lumping it in with the pairs hid
+// which of the two was actually wrong. What matters is the size, since this is
+// money kept out of the budget on a description alone, with no counterpart to
+// confirm it. Anything material means the Transfers page has work waiting.
+const oneSided = buckets.find(
+  (row) => row.bucket === 'not counted, moved to our own account, on the description alone',
+);
+const outTotal = buckets
+  .filter((row) => row.bucket.startsWith('out,'))
+  .reduce((sum, row) => sum + Math.abs(Number(row.total)), 0);
+const oneSidedTotal = Math.abs(Number(oneSided?.total ?? 0));
+check('money kept out of the budget on a description alone is immaterial',
+  oneSidedTotal / Math.max(outTotal, 1) < 0.005,
+  oneSided
+    ? `${money(oneSided.total)} across ${oneSided.n} rows with no counterpart, ${((oneSidedTotal / Math.max(outTotal, 1)) * 100).toFixed(2)}% of money out`
+    : 'none');
 
 // 4. A refund and the charge it cancels have to be equal and opposite.
 const { rows: [rev] } = await query(`

@@ -157,7 +157,18 @@ export function resolvePairs(candidates) {
 
 // Loads what detection needs: unpaired non zero rows on accounts we own, plus
 // the rejection list so a rejected pair is never offered again.
-async function loadState(client, { sinceDays = 400 } = {}) {
+//
+// Every unpaired row, however old, unless a caller narrows it. This used to be
+// a rolling 400 days, which left the first run permanently half explained: the
+// backfill reaches about 7 years, so no transfer older than the window was ever
+// offered a counterpart. One side of each of those was still kept out of the
+// budget by resolveInternalDestinations, which reads the destination out of the
+// description and has no date limit, while the other side counted as income.
+// The Transfers page could not rescue it either, because listCandidates loads
+// through here too, so the pairs a person needed to confirm were never shown.
+// There is no window to tune: only unpaired rows are read, and whether two rows
+// are equal, opposite and three days apart does not depend on their age.
+async function loadState(client, { sinceDays = null } = {}) {
   const accountsResult = await client.query(
     'select id, name, masked_number, bank, role, type from accounts',
   );
@@ -170,7 +181,18 @@ async function loadState(client, { sinceDays = 400 } = {}) {
        from transactions t
       where t.transfer_pair_id is null
         and t.amount <> 0
-        and t.txn_date >= current_date - $1::integer
+        -- A row that is already half of a refund pair is spoken for, and the
+        -- guard has to run in both directions: resolveReversals refuses rows
+        -- that are transfers, so detection has to refuse rows that are refunds.
+        -- Without this it only looked symmetric because a sync pairs transfers
+        -- before refunds, which holds on the first run and never again: every
+        -- later run sees the refund pairs written by the one before. A 24 cent
+        -- international transaction fee, already cancelled by its own refund,
+        -- was taken as a transfer against an unrelated 24 cent credit on
+        -- another account, two days apart and with nothing to outrank it.
+        and t.reversal_of_id is null
+        and not exists (select 1 from transactions r where r.reversal_of_id = t.id)
+        and ($1::integer is null or t.txn_date >= current_date - $1::integer)
       order by t.txn_date desc`,
     [sinceDays],
   );

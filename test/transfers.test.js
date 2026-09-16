@@ -249,6 +249,52 @@ test('rows more than 3 days apart do not pair', async () => {
   assert.equal(await detectTransfers({ pool }), 0);
 });
 
+// Detection used to look back a rolling 400 days, which meant a first run left
+// every transfer in the backfill unpaired for good: one side was still kept out
+// of the budget by its description, the other counted as income, and the review
+// page could not offer the pair because it reads the same window.
+test('a transfer from years ago still pairs', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { name: 'Orange Everyday', masked_number: 'xxxx9529' });
+  const savings = await makeAccount(pool, { name: 'Savings Maximiser', masked_number: 'xxxx4047' });
+
+  const out = await addTxn(pool, everyday.id, {
+    date: '2022-01-03',
+    cents: -290000,
+    description: 'INTERNAL TRANSFER TO LINKED ING ACCOUNT',
+  });
+  const income = await addTxn(pool, savings.id, {
+    date: '2022-01-03',
+    cents: 290000,
+    description: 'INTERNAL TRANSFER 923100 34239529',
+  });
+
+  assert.equal(await detectTransfers({ pool }), 1);
+  assert.equal((await pairOf(pool, out)).transfer_pair_id, income);
+});
+
+// resolveReversals refuses a row that is already a transfer, so detection has to
+// refuse a row that is already a refund. A sync pairs transfers before refunds,
+// which makes the one directional guard look sufficient on a first run and never
+// again, because every later run sees the refund pairs written by the one before.
+test('a charge already cancelled by a refund is not taken as a transfer', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { name: 'Orange Everyday', masked_number: 'xxxx9529' });
+  const other = await makeAccount(pool, { name: 'Second Everyday', masked_number: 'xxxx4486' });
+
+  const fee = await addTxn(pool, everyday.id, { date: '2026-03-01', cents: -24, description: 'INTERNATIONAL TRANSACTION' });
+  const refund = await addTxn(pool, everyday.id, { date: '2026-03-01', cents: 24, description: 'INTERNATIONAL TRANSACTION' });
+  await pool.query('update transactions set reversal_of_id = $2 where id = $1', [refund, fee]);
+
+  // Equal, opposite, two days apart and on another account: a candidate on
+  // every rule detection has, and still not a transfer.
+  const unrelated = await addTxn(pool, other.id, { date: '2026-03-03', cents: 24, description: 'GOOGLE ADS8764663905' });
+
+  assert.equal(await detectTransfers({ pool }), 0);
+  assert.equal((await pairOf(pool, fee)).is_transfer, false);
+  assert.equal((await pairOf(pool, unrelated)).is_transfer, false);
+});
+
 test('a repayment to a loan we do not hold is left unpaired', async () => {
   const pool = await getTestPool();
   const everyday = await makeAccount(pool, { masked_number: 'xxxx9529' });
