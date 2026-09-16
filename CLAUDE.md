@@ -208,6 +208,14 @@ the hand entered debts that have no counterpart row. It does not change
 exists so the Today page can say 12,000 of living and 5,900 of debt servicing
 rather than one useless 17,900.
 
+**One saving, one lever.** `forecast()` accepts both a daily spend adjustment
+and a list of commitments to exclude. Passing both for the same item counts it
+twice: a 322 dollar subscription bought 22 days of runway where the projection
+says 2. Everything on the "what to stop" list is a commitment, so pass only the
+ids. For the same reason the page shows no per item day estimate: working one
+out in closed form ignores the paydays in between and came out about double what
+the app's own projection says, and two numbers that disagree are worse than one.
+
 **The split is a share of one total, never a second measurement.** Measuring
 "what goes out" twice, once from the rate and once from the flows, gives two
 answers a fraction of a percent apart that then visibly fail to add up on the
@@ -222,6 +230,42 @@ short window forgets one large purchase by forgetting everything, and
 `scripts/backtest.js` measures the cost of that. Run the backtest rather than
 arguing about the window. Dividing by the days asked for rather than the days
 covered understates the rate badly on a young database.
+
+**A reference number is not an identity.** Both `matchKeyFor` and
+`merchantKeyFor` drop any word carrying five or more digits, which spares real
+names that contain a number (7ELEVEN, BP1, CAFE63) and removes the policy,
+invoice and customer numbers banks staple to a payee. Dropping only purely
+numeric words was not enough: one insurer arrived as six merchants worth 673 a
+month between them, every PayPal direct debit became a merchant of its own, and
+ZipMoney's weekly payments never formed a commitment. A key that is only digits
+is a BSB, so it becomes UNKNOWN rather than filing a payment under a branch code.
+
+**A refunded charge is not spending, and its refund is not income.**
+`resolveReversals` pairs a credit against an earlier charge at the same merchant
+for the same amount within 30 days, and `budget_flows.counts` excludes both
+sides. This is the transfer problem in a different costume and gets the same
+answer, which is why it needs no change at the two dozen places that filter on
+amount. Pairing is strict and one to one, charges before credits within a day
+(a refund is usually posted on the same date, and ordering by id there is
+ordering by a random uuid), and a credit that already has a pair is skipped or
+every sync silently reshuffles which charges counted.
+
+**A rate needs enough observations to be a rate.** One payment divided by a
+window is not a monthly cost: the Bendigo card is 25 a year to keep open and was
+reported at 25.37 a month, twelve times over. `debts()` needs three payments
+before it claims a rate, the Spending page needs a merchant paid on three
+separate days, and `discretionary()` gates on distinct DATES rather than rows,
+because three payments to a builder in one afternoon is one event and counting
+rows made it a recurring habit.
+
+**Do not amortise annual bills into the spend rate. This was tried and
+measured.** Rating a bill over its own period instead of the window is
+intuitively right and makes no difference: `scripts/backtest.js` puts it at
+2,580 against 2,548 for the plain window, slightly worse. The per bill errors
+cancel in aggregate, because a bill that misses the window contributes nothing
+and one that lands contributes triple. It is a presentation problem, not a rate
+problem, so it is fixed by not printing a monthly figure for a bill paid twice
+a year. Run the backtest before reopening this.
 
 **A commitment and a merchant have two different keys.** `matchKeyFor` keeps
 three words and drops numeric ones, `merchantKeyFor` strips processor prefixes

@@ -8,7 +8,7 @@ import { getPool, withTransaction, closePool } from './db.js';
 import { createClient } from './redbark.js';
 import { centsToNumeric, numericToCents, redbarkAmountToCents } from './money.js';
 import { descriptionSimilarity, daysBetween, toDateOnly } from './matching.js';
-import { detectTransfers, resolveInternalDestinations } from './transfers.js';
+import { detectTransfers, resolveInternalDestinations, resolveReversals } from './transfers.js';
 import { categoriseAll } from './categorise.js';
 import { detectCommitments } from './commitments.js';
 import { today, daysAgo } from './dates.js';
@@ -500,6 +500,9 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     await withTransaction(async (client) => {
       await backfillMerchantKeys(client);
       await ensureMerchantRows(client);
+      // Refunds that cancel an earlier charge. After merchant keys are written,
+      // because pairing is by merchant.
+      totals.reversals_paired = await resolveReversals({ client });
     }, dbPool);
 
     // Commitments feed the forecast, so they are refreshed once categories are

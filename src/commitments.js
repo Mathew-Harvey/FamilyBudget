@@ -42,13 +42,20 @@ export function medianCents(cents) {
 
 // The grouping key. Banks append receipt and reference numbers that differ on
 // every occurrence, so a key that keeps them puts each occurrence in its own
-// group and nothing ever looks recurring. Purely numeric words are dropped for
-// that reason, and only the first few remaining words are used, because the
-// tail of a description is where the noise lives.
+// group and nothing ever looks recurring, and only the first few remaining
+// words are used, because the tail of a description is where the noise lives.
+//
+// Dropping only PURELY numeric words was not enough. A reference is usually
+// stapled to a letter or two: ZipMoney writes "ZIPMONEY* P914188555" and the
+// number changes every week, so twenty two weekly payments landed in twenty two
+// groups and never looked like the commitment they obviously are. Five or more
+// digits in a word means it is a reference, which spares the real names that
+// carry a number: 7ELEVEN, BP1, CAFE63. Same rule as merchantKeyFor, for the
+// same reason, though the two keys remain deliberately different lengths.
 export function matchKeyFor(description) {
   return normaliseDescription(description)
     .split(' ')
-    .filter((word) => word.length > 1 && !/^\d+$/.test(word))
+    .filter((word) => word.length > 1 && (word.match(/\d/g) ?? []).length < 5)
     .slice(0, 3)
     .join(' ');
 }

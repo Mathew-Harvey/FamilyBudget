@@ -132,6 +132,15 @@ behaviourRouter.post('/intentions', async (req, res, next) => {
     } = req.body ?? {};
     if (!what || !String(what).trim()) return res.status(400).json({ error: 'Say what the decision is' });
 
+    let targetMonthly = null;
+    if (target !== null && target !== undefined && String(target).trim() !== '') {
+      const parsed = Number(target);
+      if (!Number.isFinite(parsed)) {
+        return res.status(400).json({ error: 'That amount is not a number' });
+      }
+      targetMonthly = Math.abs(parsed).toFixed(2);
+    }
+
     const { rows } = await query(
       `insert into intentions (what, trigger_text, merchant_key, target_monthly, review_on)
        values ($1, $2, $3, $4, $5) returning *`,
@@ -139,7 +148,10 @@ behaviourRouter.post('/intentions', async (req, res, next) => {
         String(what).trim(),
         trigger ? String(trigger).trim() : null,
         merchantKey || null,
-        target ? Number(target).toFixed(2) : null,
+        // Number('abc').toFixed(2) is the string "NaN", which numeric(12,2)
+        // accepts as NaN and the page then renders as $NaN.00. Refused, not
+        // coerced, the same way money.js refuses a float.
+        targetMonthly,
         reviewOn || null,
       ],
     );

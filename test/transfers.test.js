@@ -3,7 +3,7 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { detectTransfers, listCandidates, rejectPair, linkPair, buildCandidates, resolvePairs, internalDestinationFor, resolveInternalDestinations } from '../src/transfers.js';
+import { detectTransfers, listCandidates, rejectPair, linkPair, buildCandidates, resolvePairs, internalDestinationFor, resolveInternalDestinations, resolveReversals } from '../src/transfers.js';
 import { centsToNumeric } from '../src/money.js';
 
 beforeEach(resetDatabase);
@@ -362,4 +362,91 @@ test('money moved to another spendable account is not spending, to a loan it is'
   assert.equal(counts[toSavings], false, 'it is still our money, in the next account along');
   assert.equal(counts[toLoan], true, 'paying down a loan really is cash out the door');
   assert.ok(savings.id && loan.id);
+});
+
+async function addMerchantTxn(pool, accountId, merchantKey, amount, daysAgoCount) {
+  const { rows } = await pool.query(
+    `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, merchant_key, raw)
+     values ($1,$2,'posted',current_date - $5::integer,$3,$4,$3,'{}'::jsonb) returning id`,
+    [accountId, `txn_${Math.random().toString(36).slice(2, 14)}`, merchantKey, amount, daysAgoCount],
+  );
+  return rows[0].id;
+}
+
+test('a refunded charge cancels, so it is neither spending nor income', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+
+  const charge = await addMerchantTxn(pool, account.id, 'RIJA ENTERPRISES', '-1419.00', 0);
+  const refund = await addMerchantTxn(pool, account.id, 'RIJA ENTERPRISES', '1419.00', 0);
+  // An unrelated charge at the same merchant that was never refunded.
+  const kept = await addMerchantTxn(pool, account.id, 'RIJA ENTERPRISES', '-700.00', 1);
+
+  assert.equal(await resolveReversals({ client: pool }), 1);
+
+  const { rows } = await pool.query('select id, counts from budget_flows where id = any($1::uuid[])', [
+    [charge, refund, kept],
+  ]);
+  const counts = Object.fromEntries(rows.map((row) => [row.id, row.counts]));
+  assert.equal(counts[charge], false, 'the charge came back, so it was never spending');
+  assert.equal(counts[refund], false, 'and the refund is not income');
+  assert.equal(counts[kept], true, 'the charge that stood is untouched');
+});
+
+test('a credit with no charge to cancel is left alone', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  // A rebate, or money from a person. Guessing is worse than not knowing.
+  const credit = await addMerchantTxn(pool, account.id, 'SOME REBATE', '40.00', 0);
+  assert.equal(await resolveReversals({ client: pool }), 0);
+  const { rows } = await pool.query('select reversal_of_id from transactions where id = $1', [credit]);
+  assert.equal(rows[0].reversal_of_id, null);
+});
+
+test('a refund outside the window, or at another merchant, does not cancel a charge', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await addMerchantTxn(pool, account.id, 'SLOW REFUNDER', '-90.00', 90);
+  await addMerchantTxn(pool, account.id, 'SLOW REFUNDER', '90.00', 40);   // 50 days later
+  await addMerchantTxn(pool, account.id, 'ONE SHOP', '-55.00', 5);
+  await addMerchantTxn(pool, account.id, 'OTHER SHOP', '55.00', 4);       // different merchant
+  assert.equal(await resolveReversals({ client: pool }), 0, 'neither pair is convincing');
+});
+
+test('one refund cancels one charge, not every charge of that size', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await addMerchantTxn(pool, account.id, 'TWICE SHOP', '-25.00', 10);
+  await addMerchantTxn(pool, account.id, 'TWICE SHOP', '-25.00', 9);
+  await addMerchantTxn(pool, account.id, 'TWICE SHOP', '25.00', 8);
+
+  assert.equal(await resolveReversals({ client: pool }), 1, 'exactly one pair');
+  const { rows } = await pool.query(
+    "select count(*)::int n from budget_flows where counts and amount < 0 and merchant_key = 'TWICE SHOP'",
+  );
+  assert.equal(rows[0].n, 1, 'the other purchase is still spending');
+});
+
+test('pairing reversals twice changes nothing the second time', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await addMerchantTxn(pool, account.id, 'REFUND SHOP', '-80.00', 6);
+  await addMerchantTxn(pool, account.id, 'REFUND SHOP', '-80.00', 5);
+  await addMerchantTxn(pool, account.id, 'REFUND SHOP', '80.00', 4);
+  await addMerchantTxn(pool, account.id, 'REFUND SHOP', '80.00', 3);
+
+  const first = await resolveReversals({ client: pool });
+  const { rows: after } = await pool.query(
+    'select id, reversal_of_id from transactions where reversal_of_id is not null order by id',
+  );
+  const second = await resolveReversals({ client: pool });
+  const { rows: again } = await pool.query(
+    'select id, reversal_of_id from transactions where reversal_of_id is not null order by id',
+  );
+
+  assert.equal(second, 0, 'a second pass finds nothing new');
+  // And it does not quietly re-point existing pairs at different charges, which
+  // is what happened before: every sync reshuffled which charges counted.
+  assert.deepEqual(again, after, 'and leaves the pairs exactly as they were');
+  assert.ok(first > 0);
 });

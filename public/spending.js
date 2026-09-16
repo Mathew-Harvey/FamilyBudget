@@ -17,7 +17,7 @@ function bar(value, max, tone = 'var(--accent)') {
 }
 
 // One expandable line. Tapping it loads and shows its children underneath.
-function row({ title, note, amount, perMonth, max, onOpen, badge }) {
+function row({ title, note, amount, perMonth, max, onOpen, badge, rateIsReal = true }) {
   const children = el('div', { class: 'stack', style: 'display:none;padding:0.5rem 0 0.25rem 0.75rem;border-left:2px solid var(--line);margin-left:0.25rem' });
   let loaded = false;
 
@@ -53,7 +53,7 @@ function row({ title, note, amount, perMonth, max, onOpen, badge }) {
     ]),
     el('div', { style: 'text-align:right;white-space:nowrap' }, [
       el('div', { class: 'amount out', text: formatAmount(perMonth) }),
-      el('div', { class: 'muted', style: 'font-size:0.75rem', text: 'a month' }),
+      el('div', { class: 'muted', style: 'font-size:0.75rem', text: rateIsReal ? 'a month' : 'in this window' }),
     ]),
   ]);
 
@@ -114,8 +114,14 @@ async function merchantRows(categoryId = null) {
   return merchants.map((m) =>
     row({
       title: m.merchant,
-      note: m.what_it_is || `${m.transactions} payment${m.transactions === 1 ? '' : 's'}, ${formatAmount(m.spent)} in total`,
-      perMonth: m.per_month,
+      // Paid on one or two days in the whole window has no monthly rate. Saying
+      // "171 a month" about a rates notice that arrives twice a year is how the
+      // Bendigo card came to be reported at twelve times its real cost.
+      note: (m.days_paid != null && m.days_paid < 3)
+        ? `${formatAmount(m.spent)} over ${m.days_paid} day${m.days_paid === 1 ? '' : 's'} in this window, not a monthly cost`
+        : m.what_it_is || `${m.transactions} payment${m.transactions === 1 ? '' : 's'}, ${formatAmount(m.spent)} in total`,
+      perMonth: (m.days_paid != null && m.days_paid < 3) ? m.spent : m.per_month,
+      rateIsReal: !(m.days_paid != null && m.days_paid < 3),
       max,
       badge: m.essential ? 'essential' : null,
       onOpen: () => merchantDetail(m.merchant_key ?? m.merchant, m.merchant, m.what_it_is),

@@ -214,16 +214,25 @@ async function discretionary({ since, before, client, by }) {
         afterCents: 0,
         timesSince: 0,
         timesBefore: 0,
+        // Distinct DATES, not charges. Three payments to a builder on one
+        // afternoon is one event, and counting rows let it through the gate
+        // below and onto the page as "+654 a month", a recurring habit invented
+        // out of a single day.
+        daysSince: new Set(),
+        daysBefore: new Set(),
       });
     }
     const bucket = buckets.get(key);
     const cents = -toCents(row.amount);
-    if (String(row.txn_date).slice(0, 10) >= since) {
+    const date = String(row.txn_date).slice(0, 10);
+    if (date >= since) {
       bucket.afterCents += cents;
       bucket.timesSince++;
+      bucket.daysSince.add(date);
     } else {
       bucket.beforeCents += cents;
       bucket.timesBefore++;
+      bucket.daysBefore.add(date);
     }
   }
 
@@ -236,7 +245,7 @@ async function discretionary({ since, before, client, by }) {
   const out = [];
   const irregular = [];
   for (const bucket of buckets.values()) {
-    if (bucket.timesSince >= 2 || bucket.timesBefore >= 2) out.push(bucket);
+    if (bucket.daysSince.size >= 2 || bucket.daysBefore.size >= 2) out.push(bucket);
     else irregular.push(bucket);
   }
   out.irregular = irregular;
@@ -372,10 +381,9 @@ export async function whatToStop({ client = { query }, window = DEFAULT_SPEND_WI
 
   const { rows } = await client.query(
     `select c.id, c.match_key, c.label, c.typical_amount, c.cadence_days, c.annual,
-            m.what_it_is, m.essential, m.display_name, cat.name as category,
+            cat.name as category,
             coalesce(grp.name, cat.name) as group_name
        from commitments c
-       left join merchants m on m.match_key = c.match_key
        left join categories cat on cat.id = c.category_id
        left join categories grp on grp.id = cat.parent_id
       where c.active and c.cadence_days > 0
@@ -393,13 +401,35 @@ export async function whatToStop({ client = { query }, window = DEFAULT_SPEND_WI
   // other matches almost nothing, which is exactly the drift CLAUDE.md warns
   // about, and the symptom was a "what to stop" list headed by the mortgage.
   // One definition, applied in JavaScript.
+  // to_own_debt is the column built for exactly this question, and it already
+  // covers the three ways a debt payment is recognised. The earlier version
+  // asked "is it a transfer", which misses every hand entered debt: the credit
+  // card payments have no counterpart row to pair with, so servicing Skye's
+  // card was offered as something to cancel.
   const { rows: transferLabels } = await client.query(
     `select distinct coalesce(display_description, description) as label
        from budget_flows
-      where counts and amount < 0
-        and (internal_to_account_id is not null or is_transfer)`,
+      where counts and amount < 0 and to_own_debt`,
   );
   const debtKeys = new Set(transferLabels.map((row) => matchKeyFor(row.label)));
+
+  // What a merchant is called, and whether it was marked essential, joined on
+  // the commitment key rather than the merchant key. Those are two different
+  // normalisations of the same description and joining them in SQL matched 13
+  // of 33 commitments, so most rows silently lost their name and their
+  // essential flag. Resolved here through the one definition instead.
+  const { rows: merchantRows } = await client.query(
+    `select m.match_key, m.display_name, m.what_it_is, m.essential,
+            (select coalesce(t.display_description, t.description)
+               from budget_flows t where t.merchant_key = m.match_key limit 1) as sample_label
+       from merchants m`,
+  );
+  const byCommitmentKey = new Map();
+  for (const row of merchantRows) {
+    if (!row.sample_label) continue;
+    const key = matchKeyFor(row.sample_label);
+    if (key && !byCommitmentKey.has(key)) byCommitmentKey.set(key, row);
+  }
 
   return {
     daily_gap_cents: here.daily_gap_cents,
@@ -408,19 +438,20 @@ export async function whatToStop({ client = { query }, window = DEFAULT_SPEND_WI
     runway_date_friendly: here.runway_date_friendly,
     items: rows.map((row) => {
       const monthlyCents = Math.round((-toCents(row.typical_amount) * MONTH_DAYS) / Number(row.cadence_days));
+      const merchant = byCommitmentKey.get(row.match_key);
       return {
         commitment_id: row.id,
         // The key a decision watches to check itself later.
         merchant_key: row.match_key,
         // The name someone gave it beats what the bank wrote, every time.
-        label: row.display_name ?? row.label,
+        label: merchant?.display_name ?? row.label,
         raw_label: row.label,
-        what_it_is: row.what_it_is,
-        essential: row.essential ?? false,
+        what_it_is: merchant?.what_it_is ?? null,
+        essential: merchant?.essential ?? false,
         // Fixed means it cannot simply be cancelled this month. It still shows,
         // because knowing the mortgage is 47,000 a year is worth knowing, but
         // it is listed apart from the things that are a choice.
-        fixed: debtKeys.has(row.match_key) || Boolean(row.essential),
+        fixed: debtKeys.has(row.match_key) || Boolean(merchant?.essential),
         annual: row.annual,
         category: row.category,
         group: row.group_name,
@@ -516,18 +547,32 @@ export async function intentions({ client = { query } } = {}) {
 // finance and optimistic for a credit card. It says so rather than pretending
 // to an accuracy it does not have: the real schedule depends on a rate this app
 // is not told.
-export async function debts({ client = { query }, window = 120 } = {}) {
+export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
   const { rows } = await client.query(
     `select a.id, a.name, a.role, a.bank,
             b.balance,
-            round(coalesce(d.per_month, 0), 2) as per_month
+            round(coalesce(d.per_month, 0), 2) as per_month,
+            coalesce(d.payments, 0) as payments,
+            d.first_payment,
+            round(coalesce(y.paid_in_year, 0), 2) as per_year
        from accounts a
        left join lateral (
          select balance from balances where account_id = a.id
           order by balance_date desc limit 1
        ) b on true
        left join lateral (
-         select sum(-t.amount) * 30.44 / $1::integer as per_month
+         -- The window, or the days since the first payment if that is shorter.
+         --
+         -- Two things had to be true at once. It has to use the same window as
+         -- the headline, or the rows in this card do not add up to the "paying
+         -- down debt" figure directly above them and the page contradicts
+         -- itself. And it must not divide by days an account did not exist for,
+         -- which is the same defect everydaySpendRate had. least() does both.
+         select sum(-t.amount) * 30.44
+                  / greatest(least($1::integer, current_date - min(t.txn_date)), 30) as per_month,
+                count(*)::int as payments,
+                sum(-t.amount) as paid_in_window,
+                min(t.txn_date) as first_payment
            from budget_flows t
            left join merchants m on m.match_key = t.merchant_key
           where t.counts and t.to_own_debt
@@ -539,6 +584,22 @@ export async function debts({ client = { query }, window = 120 } = {}) {
                     where p.id = t.transfer_pair_id and p.account_id = a.id
                  ))
        ) d on true
+       left join lateral (
+         -- A full year, for the debts paid too rarely to have a monthly rate.
+         -- The Bendigo card is one annual fee: the window cannot see it and the
+         -- year can.
+         select sum(-t.amount) as paid_in_year
+           from budget_flows t
+           left join merchants m on m.match_key = t.merchant_key
+          where t.counts and t.to_own_debt
+            and t.txn_date > current_date - 365
+            and (m.pays_account_id = a.id
+                 or t.internal_to_account_id = a.id
+                 or exists (
+                   select 1 from transactions p
+                    where p.id = t.transfer_pair_id and p.account_id = a.id
+                 ))
+       ) y on true
       where not a.is_liquid
       order by b.balance nulls last`,
     [window],
@@ -547,7 +608,18 @@ export async function debts({ client = { query }, window = 120 } = {}) {
   const now = Date.parse(`${householdToday()}T00:00:00Z`);
   return rows.map((row) => {
     const owedCents = Math.abs(toCents(row.balance ?? 0));
-    const perMonthCents = toCents(row.per_month ?? 0);
+
+    // Three payments in a year is the least that can establish a monthly rate.
+    //
+    // Below that, dividing by the window invents one. The Bendigo card is paid
+    // once a year to keep the line of credit open, and a single payment spread
+    // over a 120 day window was reported as 25.37 a month, which is 304 a year
+    // against a real cost of 25. Twelve times over, on a page whose whole claim
+    // is that the numbers are true. Now it reports the year, because that is
+    // what one payment a year actually tells us.
+    const regular = row.payments >= 3;
+    const perMonthCents = regular ? toCents(row.per_month ?? 0) : 0;
+    const perYearCents = toCents(row.per_year ?? 0);
     const months = perMonthCents > 0 && owedCents > 0 ? owedCents / perMonthCents : null;
     // Anything past about a decade is a fixture, not a countdown, and putting a
     // date on it would be false precision about a rate that will change.
@@ -561,6 +633,11 @@ export async function debts({ client = { query }, window = 120 } = {}) {
       owed: fromCents(owedCents),
       owed_cents: owedCents,
       per_month: fromCents(perMonthCents),
+      per_year: fromCents(perYearCents),
+      payments_seen: row.payments,
+      // False when there were too few payments to call it a rate. The UI says
+      // what was actually observed instead of implying a monthly commitment.
+      regular,
       months_left: months === null ? null : Math.round(months),
       cleared_on: clearedOn,
       cleared_on_friendly: clearedOn ? friendlyDate(clearedOn) : null,

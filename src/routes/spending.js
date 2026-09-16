@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { matchKeyFor } from '../commitments.js';
 
 export const spendingRouter = Router();
 
@@ -99,6 +100,7 @@ spendingRouter.get('/merchants', async (req, res, next) => {
               max(m.what_it_is)                   as what_it_is,
               bool_or(m.essential)                as essential,
               count(*)::int                       as transactions,
+              count(distinct t.txn_date)::int     as days_paid,
               sum(-t.amount)                      as spent,
               round(sum(-t.amount) * 30.44 / $1, 2) as per_month,
               min(t.txn_date)                     as first_seen,
@@ -260,10 +262,29 @@ spendingRouter.get('/one-off-candidates', async (req, res, next) => {
 // keeps detection from standing them down for having gone quiet.
 spendingRouter.post('/annual', async (req, res, next) => {
   try {
-    const { merchant_key: merchantKey, label, amount, next_due: nextDue, cadence_days: cadence = 365 } = req.body ?? {};
-    if (!merchantKey && !label) return res.status(400).json({ error: 'A merchant or a label is required' });
+    const { label, amount, next_due: nextDue, cadence_days: cadence = 365 } = req.body ?? {};
+    // The label has to be a real description from the statement, because the key
+    // is derived from it. An earlier version accepted a merchant key and stored
+    // that: commitments are looked up by matchKeyFor and merchants by
+    // merchantKeyFor, and the two normalisations never match, so the bill would
+    // have been projected as a commitment AND left in the everyday rate, and
+    // counted twice. Same drift CLAUDE.md warns about, third instance found.
+    if (!label || !String(label).trim()) {
+      return res.status(400).json({ error: 'A label is required, and it must match how the bill appears on the statement' });
+    }
     if (!Number(amount)) return res.status(400).json({ error: 'A typical amount is required' });
     if (!nextDue) return res.status(400).json({ error: 'A date it is next due is required' });
+
+    const matchKey = matchKeyFor(label);
+    if (!matchKey) return res.status(400).json({ error: 'That label has nothing in it to match on' });
+
+    // Negative is money out, everywhere. The forecast adds typical_amount to
+    // the balance, so a bill entered as 1800 rather than -1800 paid the
+    // household 1800 on its due date instead of charging it: a 3,600 dollar
+    // error every time it came round. The sign is not the caller's to get
+    // wrong, so it is normalised here rather than validated.
+    const outgoing = -Math.abs(Number(amount));
+    if (!Number.isFinite(outgoing)) return res.status(400).json({ error: 'That amount is not a number' });
 
     const { rows } = await query(
       `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
@@ -274,7 +295,7 @@ spendingRouter.post('/annual', async (req, res, next) => {
          cadence_days = excluded.cadence_days, next_due = excluded.next_due,
          annual = true, source = 'manual', active = true, updated_at = now()
        returning *`,
-      [merchantKey ?? label, label ?? merchantKey, amount, Number(cadence) || 365, nextDue],
+      [matchKey, String(label).trim(), outgoing.toFixed(2), Number(cadence) || 365, nextDue],
     );
     res.json({ commitment: rows[0] });
   } catch (err) {

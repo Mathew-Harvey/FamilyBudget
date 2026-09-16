@@ -337,3 +337,87 @@ export async function resolveInternalDestinations(options = {}) {
   if (options.client) return run(options.client);
   return withTransaction(run, options.pool);
 }
+
+// A credit that cancels an earlier charge at the same merchant.
+//
+// Pairing is strict and one to one, for the same reason transfer pairing is:
+// getting this wrong hides real spending, which is worse than leaving a credit
+// unexplained. Same merchant, same amount to the cent, the credit on or after
+// the charge and within the window, and each row consumed once. Charges are
+// taken oldest first so a merchant that bills and refunds repeatedly pairs in
+// the order it happened.
+//
+// A credit with no charge to cancel is left alone. It could be a rebate, a
+// cashback or money from a person, and guessing is worse than not knowing.
+const REVERSAL_WINDOW_DAYS = 30;
+const DAY = 86_400_000;
+const atMidnight = (value) => Date.parse(`${String(value).slice(0, 10)}T00:00:00Z`);
+
+export async function resolveReversals(options = {}) {
+  const run = async (client) => {
+    const { rows } = await client.query(
+      `select t.id, t.merchant_key, t.amount, t.txn_date, t.reversal_of_id
+         from transactions t
+         join accounts a on a.id = t.account_id
+        where a.is_liquid
+          and t.merchant_key is not null
+          and t.merchant_key <> 'UNKNOWN'
+          and not t.is_transfer
+        -- Charges before credits within a day. A refund is very often posted on
+        -- the same date as the charge it cancels, and ordering by id there is
+        -- ordering by a random uuid: the credit arrives before there is anything
+        -- waiting for it and the pair is missed. Amount ascending puts the
+        -- negatives first.
+        order by t.txn_date, t.amount, t.id`,
+    );
+
+    const { rows: existing } = await client.query(
+      'select reversal_of_id from transactions where reversal_of_id is not null',
+    );
+    const alreadyCancelled = new Set(existing.map((row) => row.reversal_of_id));
+
+    // Charges waiting to be cancelled, keyed by merchant and exact amount.
+    const waiting = new Map();
+    const keyFor = (merchant, cents) => `${merchant} :: ${cents}`;
+    const pairs = [];
+
+    for (const row of rows) {
+      const cents = Math.round(Number(row.amount) * 100);
+      if (cents < 0) {
+        if (alreadyCancelled.has(row.id)) continue;
+        const key = keyFor(row.merchant_key, -cents);
+        if (!waiting.has(key)) waiting.set(key, []);
+        waiting.get(key).push(row);
+        continue;
+      }
+      if (cents === 0) continue;
+      // Already paired on an earlier run. Without this the credit is matched
+      // again, to a different charge, and every run silently reshuffles which
+      // charges are considered refunded.
+      if (row.reversal_of_id) continue;
+
+      const queue = waiting.get(keyFor(row.merchant_key, cents));
+      if (!queue?.length) continue;
+
+      const index = queue.findIndex((charge) => {
+        const gap = (atMidnight(row.txn_date) - atMidnight(charge.txn_date)) / DAY;
+        return gap >= 0 && gap <= REVERSAL_WINDOW_DAYS;
+      });
+      if (index === -1) continue;
+
+      const [charge] = queue.splice(index, 1);
+      pairs.push({ creditId: row.id, chargeId: charge.id });
+    }
+
+    for (const pair of pairs) {
+      await client.query(
+        'update transactions set reversal_of_id = $2, updated_at = now() where id = $1',
+        [pair.creditId, pair.chargeId],
+      );
+    }
+    return pairs.length;
+  };
+
+  if (options.client) return run(options.client);
+  return withTransaction(run, options.pool);
+}

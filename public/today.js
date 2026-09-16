@@ -203,11 +203,14 @@ function debtsSection(list) {
     el('div', { class: 'truncate', style: 'font-weight:500', text: row.name }),
     el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: money(row.owed) }),
     el('div', { class: 'muted', style: 'font-size:0.8rem', text:
-      row.cleared_on_friendly
-        ? `Gone ${row.cleared_on_friendly}, then ${money(row.per_month)} a month comes back`
-        : 'Long term, not a countdown' }),
+      !row.regular
+        // Too few payments to call it a rate. Say what was actually observed.
+        ? `${money(row.per_year)} paid over ${row.payments_seen} payment${row.payments_seen === 1 ? '' : 's'} in the last year`
+        : row.cleared_on_friendly
+          ? `Gone ${row.cleared_on_friendly}, then ${money(row.per_month)} a month comes back`
+          : 'Long term, not a countdown' }),
     el('div', { class: 'muted', style: 'text-align:right;white-space:nowrap;font-size:0.8rem',
-      text: Number(row.per_month) > 0 ? `${money(row.per_month)} a month` : '' }),
+      text: row.regular && Number(row.per_month) > 0 ? `${money(row.per_month)} a month` : '' }),
   ]));
 
   const card = el('div', { class: 'card stack' }, [
@@ -234,6 +237,13 @@ function debtsSection(list) {
       `${lines.map((row) => row.name).join(', ')}: nothing owing, kept open as a line of credit. `
       + 'The runway below does not count it, so there is more room than the date suggests.' }));
   }
+
+  // A line of credit with nothing owing still shows if it cost something to keep.
+  const feeOnly = list.filter((row) => row.unused_credit_line && Number(row.per_year) > 0);
+  if (feeOnly.length) {
+    card.append(el('p', { class: 'muted', style: 'margin:0', text:
+      feeOnly.map((row) => `Keeping ${row.name} open cost ${money(row.per_year)} over the last year`).join('. ') + '.' }));
+  }
   box.append(card);
 }
 
@@ -258,9 +268,13 @@ async function whatToStop(data) {
       .reduce((total, item) => total + Number(String(item.per_month).replace(/[^0-9.]/g, '')), 0);
     result.textContent = 'Working it out...';
     try {
+      // Only the commitment ids. Sending the monthly amount as well asked the
+      // forecast to both stop the bill and cut the daily rate by the same
+      // amount, so one 322 dollar subscription bought 22 days instead of 2.
+      // The amount is still shown, it just is not a second lever.
       const moved = await api('/api/today/trade-off', {
         method: 'POST',
-        body: { monthly, commitment_ids: [...chosen] },
+        body: { monthly: 0, commitment_ids: [...chosen] },
       });
       result.className = 'good';
       result.style.fontWeight = '600';
@@ -292,11 +306,12 @@ async function whatToStop(data) {
       // year next to it undoes exactly that framing.
       el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: `${money(item.per_year)} a year` }),
       el('div', { class: 'muted truncate', style: 'font-size:0.8rem', text: item.what_it_is || item.category || '' }),
+      // No per row day estimate. Working it out in closed form ignores the
+      // paydays in between and came out about double what this app's own
+      // projection says, and two numbers that disagree are worse than one.
+      // Tick the row and the answer underneath is the real projection.
       el('div', { class: 'muted', style: 'text-align:right;white-space:nowrap;font-size:0.8rem' }, [
         el('span', { text: `${money(item.per_month)} a month` }),
-        item.clears_the_gap || item.runway_days
-          ? el('span', { class: 'good', style: 'margin-left:0.4rem', text: item.clears_the_gap ? 'closes the gap' : `+${item.runway_days} days` })
-          : null,
       ]),
     ]);
   };
@@ -306,7 +321,7 @@ async function whatToStop(data) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'What each one is really costing' }),
-    el('div', { class: 'muted', text: 'Priced by the year, and by how many days it buys back. Tick things to see what stopping them does to the date. Ticking changes nothing.' }),
+    el('div', { class: 'muted', text: 'Priced by the year, because that is the number a monthly price is designed to hide. Tick things to see what stopping them does to the date. Ticking changes nothing.' }),
     el('div', {}, choice.map(line)),
     result,
   ]);

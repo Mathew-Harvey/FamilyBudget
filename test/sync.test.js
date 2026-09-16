@@ -13,6 +13,7 @@ import {
 } from './helpers.js';
 import { persistTransactions, upsertAccounts, runSync, mapTransaction, findPendingMatch } from '../src/sync.js';
 import { numericToCents } from '../src/money.js';
+import { merchantKeyFor } from '../src/merchants.js';
 
 beforeEach(resetDatabase);
 after(closeTestPool);
@@ -385,4 +386,28 @@ test('an account entered by hand is adopted when open banking starts serving it'
   assert.equal(rows[0].role, 'personal_loan', 'the role someone set is theirs');
   assert.equal(rows[0].name, 'ING personal loan', 'and so is the name they gave it');
   assert.equal(numericToCents(rows[0].balance), -1115000, 'the balance they entered survives');
+});
+
+test('a reference number is not a merchant identity', () => {
+  // Six insurance policies from one company, each with its own policy number,
+  // were six separate merchants until the reference was stripped. Together they
+  // were 673 dollars a month that looked like six unremarkable lines.
+  assert.equal(merchantKeyFor('DIRECT DEBIT 405088 PREMCBA YOUI     OA45223163'), 'YOUI');
+  assert.equal(merchantKeyFor('DIRECT DEBIT 405088 PREMCBA YOUI     OA72169299'), 'YOUI');
+  assert.equal(merchantKeyFor('YOUI - PREMIUM'), 'YOUI');
+
+  // The reference was the only thing left after the prefixes came off, so every
+  // PayPal direct debit became a merchant of its own.
+  assert.equal(merchantKeyFor('DIRECT DEBIT 617704 PAYPAL AUSTRALIA 1049004242418'), 'PAYPAL');
+  // But PayPal in front of a named merchant is still just a processor.
+  assert.equal(merchantKeyFor('PAYPAL *PETBARN'), 'PETBARN');
+
+  // A BSB is not a payee. This one filed a 5,000 dollar payment to a person
+  // under a bank branch code.
+  assert.equal(merchantKeyFor('PAY ANYONE - EXTERNAL PARTY 016742 496129173'), 'UNKNOWN');
+
+  // Real names that happen to carry digits survive: fewer than five of them.
+  assert.equal(merchantKeyFor('7ELEVEN 2422 MANDURAH'), '7ELEVEN 2422 MANDURAH');
+  assert.equal(merchantKeyFor('BUNNINGS 314000'), 'BUNNINGS');
+  assert.equal(merchantKeyFor('ALDI STORES'), 'ALDI');
 });

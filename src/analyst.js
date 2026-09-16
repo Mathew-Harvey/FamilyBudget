@@ -269,8 +269,14 @@ export async function buildSnapshot(client = { query }) {
       expected_income_per_period: projection.expected_income.amount,
       expected_income_source: projection.expected_income.source,
       everyday_spend_per_day: projection.everyday_rate.per_day,
-      committed_last_90_days: projection.everyday_rate.committed,
-      total_out_last_90_days: projection.everyday_rate.total,
+      // Named from the window that produced them. These said "last_90_days"
+      // while carrying whatever SPEND_WINDOW_DAYS was set to, which is 120, so
+      // Claude was told to read a third more spending into every month than had
+      // happened and its advice was built on it.
+      spend_window_days: projection.everyday_rate.days,
+      days_of_history_in_window: projection.everyday_rate.effective_days,
+      committed_in_window: projection.everyday_rate.committed,
+      total_out_in_window: projection.everyday_rate.total,
     },
     accounts: accounts.map((account) => ({
       bank: account.bank,

@@ -5,7 +5,7 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { priceIn, friendlyDate, didItStick, movers, position, tradeOff } from '../src/behaviour.js';
+import { priceIn, friendlyDate, didItStick, movers, position, tradeOff, whatToStop, debts } from '../src/behaviour.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
 import { daysAgo } from '../src/dates.js';
@@ -154,4 +154,94 @@ test('ticking something off moves the date, and the move is real', async () => {
   const moved = await tradeOff({ monthlyCents: 100_000, client: pool });
   assert.ok(moved.days_gained > 0, 'spending a thousand a month less has to buy time');
   assert.notEqual(moved.to, moved.from);
+});
+
+test('several charges on one day are one event, not a monthly habit', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  // Ordinary shopping either side of the change point, unchanged.
+  for (let i = 0; i <= 180; i += 3) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -6000, description: 'ALDI STORES', merchantKey: 'ALDI' });
+  }
+  // A builder paid three times in one afternoon. Counting rows let this through
+  // the "seen at least twice" gate and put it on the page as a recurring rise.
+  for (const cents of [-141900, -84595, -70000]) {
+    await addTxn(pool, account.id, { date: daysAgo(20), cents, description: 'RIJA ENTERPRISES PTY', merchantKey: 'RIJA ENTERPRISES' });
+  }
+
+  const moved = await movers({ since: daysAgo(56), client: pool, before: 180 });
+  assert.ok(
+    !moved.up.some((row) => /RIJA/i.test(row.place)),
+    'one day of spending has no monthly rate, however many charges it took',
+  );
+  assert.ok(
+    moved.irregular.some((row) => /RIJA/i.test(row.place)),
+    'and it is reported as left out rather than dropped',
+  );
+});
+
+test('a debt payment is not offered as something to cancel', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  const card = await makeAccount(pool, { masked_number: null, is_liquid: false, name: 'A credit card' });
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  // A hand entered debt has no counterpart row to pair with, so the only link
+  // is the payee. Asking "is it a transfer" missed it entirely and the page
+  // offered servicing a credit card as a subscription to cancel.
+  await pool.query(
+    "insert into merchants (match_key, display_name, source, pays_account_id) values ('CARD CO','Card Co','manual',$1)",
+    [card.id],
+  );
+  for (let i = 0; i <= 90; i += 30) {
+    await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -40000, description: 'CARD CO PAYMENT', merchantKey: 'CARD CO' });
+  }
+  await pool.query(
+    `insert into commitments (match_key, label, typical_amount, cadence_days, next_due, occurrences, regularity, source)
+     values ('CARD CO PAYMENT', 'Card Co payment', '-400.00', 30, current_date, 4, 1, 'detected')`,
+  );
+
+  const stop = await whatToStop({ client: pool });
+  const row = stop.items.find((item) => /card co/i.test(item.label));
+  assert.ok(row, 'it is still listed, because the cost is worth knowing');
+  assert.equal(row.fixed, true, 'but it cannot simply be stopped');
+});
+
+test('the debts card adds up to the headline debt figure', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  const loan = await makeAccount(pool, { masked_number: null, is_liquid: false, name: 'A loan' });
+  await pool.query(
+    `insert into balances (account_id, balance_date, balance) values ($1, current_date, '5000.00')`,
+    [everyday.id],
+  );
+  await pool.query(
+    `insert into balances (account_id, balance_date, balance) values ($1, current_date, '-9000.00')`,
+    [loan.id],
+  );
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  await pool.query(
+    "insert into merchants (match_key, display_name, source, pays_account_id) values ('LOAN CO','Loan Co','manual',$1)",
+    [loan.id],
+  );
+  for (let i = 0; i <= 110; i += 10) {
+    await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -30000, description: 'LOAN CO', merchantKey: 'LOAN CO' });
+    await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -5000, description: `SHOP ${i}`, merchantKey: `SHOP${i}` });
+  }
+
+  const here = await position({ client: pool });
+  const owed = await debts({ client: pool });
+  const rows = owed.reduce((total, row) => total + Number(row.per_month), 0);
+
+  // Two independent measurements of one quantity land a few percent apart and
+  // then visibly fail to add up on the page, which reads as a bug.
+  assert.ok(
+    Math.abs(Number(here.debt_per_month) - rows) < Number(here.debt_per_month) * 0.05,
+    `headline ${here.debt_per_month} should match the rows ${rows.toFixed(2)}`,
+  );
 });
