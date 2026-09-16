@@ -665,3 +665,105 @@ test('a detected commitment whose key no longer matches anything is stood down',
   const { rows: manual } = await pool.query("select active from commitments where match_key = 'NOT YET HAPPENED'");
   assert.equal(manual[0].active, true, 'a manual commitment is theirs, not detection to overrule');
 });
+
+test('the forecast can use necessities plus a chosen discretionary allowance', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 1000000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+
+  const { rows: [essential] } = await pool.query(
+    "insert into categories (name, kind, lean_tier) values ('Groceries','expense','trim') returning id",
+  );
+  const { rows: [luxury] } = await pool.query(
+    "insert into categories (name, kind, lean_tier) values ('Hobbies','expense','cut') returning id",
+  );
+  await pool.query(
+    "insert into merchants (match_key, display_name, source, lean_tier) values ('PET SHOP','Pet shop','manual','trim')",
+  );
+  for (let i = 0; i < 30; i++) {
+    await addTxn(pool, account.id, {
+      date: daysAgo(i), cents: -1000, description: `GROCERIES ${i}`,
+      categoryId: essential.id, merchantKey: 'GROCERIES',
+    });
+    await addTxn(pool, account.id, {
+      date: daysAgo(i), cents: -2000, description: `HOBBY ${i}`,
+      categoryId: luxury.id, merchantKey: 'HOBBY',
+    });
+    await addTxn(pool, account.id, {
+      date: daysAgo(i), cents: -500, description: `PET FOOD ${i}`,
+      categoryId: luxury.id, merchantKey: 'PET SHOP',
+    });
+  }
+  await addTxn(pool, account.id, {
+    date: daysAgo(5), cents: -30000, description: 'ONE MEDICAL VISIT',
+    categoryId: essential.id, merchantKey: 'ONE MEDICAL VISIT',
+  });
+
+  const rate = await everydaySpendRate(30, pool);
+  assert.equal(rate.essential_per_day_cents, 2500);
+  assert.equal(rate.recurring_essential_per_day_cents, 1500, 'a pet merchant can override its broad category');
+  assert.equal(rate.irregular_essential, '300.00', 'one medical visit is reported, not turned into a rate');
+  assert.equal(rate.discretionary_per_day_cents, 2000);
+  assert.equal(rate.per_day_cents, 4500, 'the current-real-life rate still contains all actual spending');
+
+  const essentialsOnly = await forecast({
+    days: 30, window: 30, client: pool, discretionaryCentsPerMonth: 0,
+  });
+  assert.equal(essentialsOnly.projected_everyday_rate.per_day_cents, 1500);
+
+  const withAllowance = await forecast({
+    days: 30, window: 30, client: pool, discretionaryCentsPerMonth: 30440,
+  });
+  assert.equal(withAllowance.projected_everyday_rate.per_day_cents, 2500);
+});
+
+test('a debt repayment remains essential even when its category is unknown', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  const loan = await makeAccount(pool, {
+    masked_number: 'xxxx2222', type: 'loan', is_liquid: false,
+  });
+  await setBalance(pool, account.id, 1000000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await pool.query(
+    `insert into merchants (match_key, display_name, source, lean_tier, pays_account_id)
+     values ('LOAN PAYMENT','Loan payment','manual','cut',$1)`,
+    [loan.id],
+  );
+  for (const day of [2, 15, 29]) {
+    await addTxn(pool, account.id, {
+      date: daysAgo(day), cents: -10000, description: 'LOAN PAYMENT',
+      merchantKey: 'LOAN PAYMENT',
+    });
+  }
+
+  const rate = await everydaySpendRate(30, pool);
+  assert.equal(rate.recurring_essential_per_day_cents, 1000);
+  assert.equal(rate.discretionary_per_day_cents, 0);
+});
+
+test('a future pay anchor starts full pay there, with a partial pay modeled once', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 100000);
+
+  const fullPayday = addDays(today(), 42);
+  const partialPayday = addDays(today(), 12);
+  await setPayCycle('monthly', fullPayday, '1000.00', pool);
+  await pool.query(
+    `insert into expected_income
+       (label, amount, cadence_days, starts_on, ends_on, confidence)
+     values ('Partial first pay', '250.00', 1, $1, $1, 'confirmed')`,
+    [partialPayday],
+  );
+
+  const projection = await forecast({ days: 90, client: pool });
+  assert.equal(projection.paydays[0], fullPayday);
+  assert.ok(projection.paydays.every((date) => date >= fullPayday));
+  const partialEvents = projection.series
+    .flatMap((point) => point.events)
+    .filter((event) => event.kind === 'expected_income');
+  assert.equal(partialEvents.length, 1);
+  assert.equal(partialEvents[0].amount, '250.00');
+});

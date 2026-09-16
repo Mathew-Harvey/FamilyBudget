@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments } from '../commitments.js';
+import { tieredCosts } from '../lean.js';
+import { numericToCents, centsToNumeric } from '../money.js';
 
 export const forecastRouter = Router();
 
@@ -12,7 +14,57 @@ forecastRouter.get('/', async (req, res, next) => {
     // Normalised once here so the forecast only ever sees exact 2dp text.
     const buffer = (Number(req.query.buffer) || 0).toFixed(2);
     const window = Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 180);
-    res.json(await forecast({ days, buffer, window }));
+    let discretionaryCents;
+    try {
+      discretionaryCents = numericToCents(String(req.query.discretionary || '0'));
+    } catch {
+      return res.status(400).json({ error: 'Discretionary spending must be a dollar amount with at most two decimal places' });
+    }
+    if (discretionaryCents < 0) {
+      return res.status(400).json({ error: 'Discretionary spending cannot be negative' });
+    }
+
+    const costs = await tieredCosts({ window });
+    const optionalCommitments = costs.commitments.filter((row) => row.tier === 'cut');
+    const optionalIds = new Set(optionalCommitments.map((row) => String(row.commitment_id)));
+    const requestedExclusions = String(req.query.exclude_commitments || '')
+      .split(',')
+      .filter(Boolean);
+    // The control can turn off luxuries. Fixed and essential commitments
+    // cannot be hidden by editing a query string.
+    const excluded = requestedExclusions.filter((id) => optionalIds.has(id));
+
+    const projection = await forecast({
+      days,
+      buffer,
+      window,
+      discretionaryCentsPerMonth: discretionaryCents,
+      excludeCommitmentIds: excluded,
+    });
+    const historicalDiscretionaryCents = costs.variable
+      .filter((row) => row.tier === 'cut')
+      .reduce((total, row) => total + row.per_month_cents, 0);
+    const optionalCommitmentCents = optionalCommitments
+      .reduce((total, row) => total + row.per_month_cents, 0);
+    const includedCommitmentCents = optionalCommitments
+      .filter((row) => !excluded.includes(String(row.commitment_id)))
+      .reduce((total, row) => total + row.per_month_cents, 0);
+
+    res.json({
+      ...projection,
+      luxury: {
+        allowance_per_month: centsToNumeric(discretionaryCents),
+        historical_variable_per_month: centsToNumeric(historicalDiscretionaryCents),
+        optional_commitments_per_month: centsToNumeric(optionalCommitmentCents),
+        included_commitments_per_month: centsToNumeric(includedCommitmentCents),
+        active_commitments: optionalCommitments.map((row) => ({
+          id: row.commitment_id,
+          label: row.name,
+          per_month: row.per_month,
+          included: !excluded.includes(String(row.commitment_id)),
+        })),
+      },
+    });
   } catch (err) {
     next(err);
   }

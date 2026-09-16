@@ -10,7 +10,7 @@
 <body>
 <main>
   <h2>Forecast</h2>
-  <p class="muted">Spendable cash projected forward from what is committed and what we usually spend. The mortgage redraw is not counted, it is money we would have to borrow back.</p>
+  <p class="muted">Spendable cash projected from recurring essentials, current commitments and the discretionary amount you choose. The mortgage redraw is not counted, it is money we would have to borrow back.</p>
   <div id="notice"></div>
 
   <div class="card stack">
@@ -21,9 +21,27 @@
       </select></div>
       <div><label for="buffer">Keep a buffer of</label><input id="buffer" type="number" step="50" value="0" style="width:7rem"></div>
       <div><label for="window">Spend rate from the last</label><select id="window">
-        <option value="30">30 days</option><option value="60" selected>2 months</option><option value="90">3 months</option>
+        <option value="30">30 days</option><option value="60">2 months</option><option value="90">3 months</option>
+        <option value="120" selected>4 months</option><option value="180">6 months</option>
       </select></div>
     </div>
+  </div>
+
+  <h2>Luxury spending</h2>
+  <div class="card stack">
+    <p class="muted" style="margin:0">Food, fuel, care, pets, cover and fixed costs form the baseline. Active optional commitments remain included because they are still being charged. Turn one off to model cancelling it.</p>
+    <div class="row">
+      <label style="display:flex;gap:0.4rem;align-items:center;margin:0">
+        <input id="includeDiscretionary" type="checkbox">
+        <span>Allow extra discretionary spending</span>
+      </label>
+      <div>
+        <label for="discretionaryAmount">Amount each month</label>
+        <input id="discretionaryAmount" type="number" min="0" step="25" value="0" disabled style="width:8rem">
+      </div>
+    </div>
+    <div id="luxuryCommitments"><p class="muted">Loading commitments...</p></div>
+    <p class="muted" style="margin:0">Change whether a place is essential, flexible or luxury on the <a href="/spending">Spending page</a>.</p>
   </div>
 
   <div class="card stack" id="summary"><p class="muted">Loading...</p></div>

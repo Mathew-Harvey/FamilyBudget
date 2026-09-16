@@ -65,7 +65,7 @@ function row({ title, note, amount, perMonth, max, onOpen, badge, rateIsReal = t
 }
 
 // The deepest level: the transactions themselves, plus what this place is.
-async function merchantDetail(key, displayName, whatItIs, ended = false) {
+async function merchantDetail(key, displayName, whatItIs, ended = false, leanTier = null, categoryTier = null) {
   const { transactions } = await api(
     `/api/spending/merchants/${encodeURIComponent(key)}/transactions?window=${windowDays()}`,
   );
@@ -83,6 +83,20 @@ async function merchantDetail(key, displayName, whatItIs, ended = false) {
   const endedLabel = el('label', { class: 'muted', style: 'display:flex;gap:0.3rem;align-items:center' }, [
     endedBox, el('span', { text: 'Finished with, do not expect it again' }),
   ]);
+  const tierSelect = el('select', {}, [
+    el('option', {
+      value: '',
+      text: `Use category (${categoryTier === 'keep' ? 'essential' : categoryTier === 'trim' ? 'flexible essential' : 'luxury'})`,
+      selected: !leanTier,
+    }),
+    el('option', { value: 'keep', text: 'Essential', selected: leanTier === 'keep' }),
+    el('option', { value: 'trim', text: 'Flexible essential', selected: leanTier === 'trim' }),
+    el('option', { value: 'cut', text: 'Luxury or optional', selected: leanTier === 'cut' }),
+  ]);
+  const tierLabel = el('label', { class: 'muted' }, [
+    el('span', { text: 'Forecast treatment' }),
+    tierSelect,
+  ]);
   save.addEventListener('click', async () => {
     save.disabled = true;
     try {
@@ -92,6 +106,7 @@ async function merchantDetail(key, displayName, whatItIs, ended = false) {
           display_name: nameInput.value || null,
           what_it_is: whatInput.value || null,
           ended: endedBox.checked,
+          lean_tier: tierSelect.value || null,
         },
       });
       save.textContent = 'Saved';
@@ -104,7 +119,7 @@ async function merchantDetail(key, displayName, whatItIs, ended = false) {
 
   return [
     el('div', { class: 'row', style: 'margin-bottom:0.3rem' }, [nameInput, whatInput, save]),
-    el('div', { class: 'row', style: 'margin-bottom:0.4rem' }, [endedLabel]),
+    el('div', { class: 'row', style: 'margin-bottom:0.4rem' }, [endedLabel, tierLabel]),
     el('table', { class: 'table-responsive' }, [
       el('tbody', {}, transactions.map((t) =>
         el('tr', {}, [
@@ -126,8 +141,9 @@ async function merchantRows(categoryId = null) {
   if (!merchants.length) return [el('p', { class: 'muted', text: 'Nothing here in this window.' })];
 
   const max = Math.max(...merchants.map((m) => Number(m.per_month)));
-  return merchants.map((m) =>
-    row({
+  return merchants.map((m) => {
+    const effectiveTier = m.lean_tier ?? m.category_tier ?? 'cut';
+    return row({
       title: m.merchant,
       // Paid on one or two days in the whole window has no monthly rate. Saying
       // "171 a month" about a rates notice that arrives twice a year is how the
@@ -138,10 +154,23 @@ async function merchantRows(categoryId = null) {
       perMonth: (m.days_paid != null && m.days_paid < 3) ? m.spent : m.per_month,
       rateIsReal: !(m.days_paid != null && m.days_paid < 3),
       max,
-      badge: m.ended_on ? 'finished with' : m.essential ? 'essential' : null,
-      onOpen: () => merchantDetail(m.merchant_key ?? m.merchant, m.merchant, m.what_it_is, Boolean(m.ended_on)),
-    }),
-  );
+      badge: m.ended_on
+        ? 'finished with'
+        : effectiveTier === 'keep'
+          ? 'essential'
+          : effectiveTier === 'trim'
+            ? 'flexible essential'
+            : 'luxury',
+      onOpen: () => merchantDetail(
+        m.merchant_key ?? m.merchant,
+        m.merchant,
+        m.what_it_is,
+        Boolean(m.ended_on),
+        m.lean_tier,
+        m.category_tier,
+      ),
+    });
+  });
 }
 
 async function renderGroups() {

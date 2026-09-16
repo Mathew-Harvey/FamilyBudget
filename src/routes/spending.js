@@ -99,6 +99,8 @@ spendingRouter.get('/merchants', async (req, res, next) => {
               min(t.merchant_key)                 as merchant_key,
               max(m.what_it_is)                   as what_it_is,
               bool_or(m.essential)                as essential,
+              max(m.lean_tier::text)              as lean_tier,
+              max(cat.lean_tier::text)            as category_tier,
               max(m.ended_on)                     as ended_on,
               count(*)::int                       as transactions,
               count(distinct t.txn_date)::int     as days_paid,
@@ -155,11 +157,16 @@ spendingRouter.post('/merchants/:key', async (req, res, next) => {
   try {
     const {
       display_name: displayName, what_it_is: whatItIs, essential, category_id: categoryId,
+      lean_tier: leanTier,
       // Finished with: cancelled, switched away from, or stopped using. The
       // history stays and every total still shows it, it just stops being a
       // guide to next month. Pass false to undo.
       ended,
     } = req.body ?? {};
+    if (leanTier !== undefined && leanTier !== null && !['keep', 'trim', 'cut'].includes(leanTier)) {
+      return res.status(400).json({ error: 'Forecast treatment must be essential, flexible or luxury' });
+    }
+    const hasLeanTier = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'lean_tier');
     const { rows } = await query(
       `update merchants set
          display_name = coalesce($2, display_name),
@@ -169,12 +176,13 @@ spendingRouter.post('/merchants/:key', async (req, res, next) => {
          ended_on     = case when $6::boolean is null then ended_on
                              when $6 then coalesce(ended_on, current_date)
                              else null end,
+         lean_tier    = case when $7::boolean then $8::lean_tier else lean_tier end,
          source       = 'manual',
          updated_at   = now()
        where match_key = $1
        returning *`,
       [req.params.key, displayName ?? null, whatItIs ?? null, essential ?? null, categoryId ?? null,
-       ended === undefined ? null : Boolean(ended)],
+       ended === undefined ? null : Boolean(ended), hasLeanTier, leanTier ?? null],
     );
     if (!rows.length) return res.status(404).json({ error: 'No such merchant' });
 

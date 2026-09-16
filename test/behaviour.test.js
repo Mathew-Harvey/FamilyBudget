@@ -8,7 +8,7 @@ import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helper
 import { priceIn, friendlyDate, didItStick, movers, position, tradeOff, whatToStop, debts } from '../src/behaviour.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
-import { daysAgo } from '../src/dates.js';
+import { daysAgo, addDays, today } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
@@ -65,6 +65,26 @@ test('nothing being burned means a cost buys savings, not time', () => {
   assert.equal(answer.runway_days, null);
   assert.equal(answer.clears_the_gap, false);
   assert.equal(answer.per_year, '1200.00');
+});
+
+test('a temporary first pay moves the cash curve but not ongoing monthly income', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await pool.query(
+    "insert into balances (account_id, balance_date, balance) values ($1, current_date, '1000.00')",
+    [account.id],
+  );
+  await setPayCycle('monthly', daysAgo(400), '1000.00', pool);
+  const partialPayday = addDays(today(), 12);
+  await pool.query(
+    `insert into expected_income
+       (label, amount, cadence_days, starts_on, ends_on, confidence)
+     values ('Partial first pay', '250.00', 1, $1, $1, 'confirmed')`,
+    [partialPayday],
+  );
+
+  const here = await position({ client: pool });
+  assert.equal(here.in_per_month, '1000.00');
 });
 
 test('a fortnightly commitment does not look like a rise just because the windows differ', async () => {

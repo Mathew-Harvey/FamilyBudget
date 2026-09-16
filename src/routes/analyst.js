@@ -160,14 +160,21 @@ analystRouter.delete('/assets/:id', async (req, res, next) => {
 
 analystRouter.post('/expected-income', async (req, res, next) => {
   try {
-    const { label, amount, cadence_days: cadence, starts_on: startsOn, confidence, notes } = req.body ?? {};
+    const {
+      label, amount, cadence_days: cadence, starts_on: startsOn, ends_on: endsOn,
+      confidence, notes,
+    } = req.body ?? {};
     if (!label || !String(label).trim()) return res.status(400).json({ error: 'A label is required' });
     if (!Number(amount)) return res.status(400).json({ error: 'An amount is required' });
     if (!Number(cadence)) return res.status(400).json({ error: 'How often it arrives, in days, is required' });
     const { rows } = await query(
-      `insert into expected_income (label, amount, cadence_days, starts_on, confidence, notes)
-       values ($1,$2,$3,$4,coalesce($5,'likely'),$6) returning *`,
-      [String(label).trim(), Math.abs(Number(amount)).toFixed(2), Math.round(Number(cadence)), startsOn || null, confidence ?? null, notes ?? null],
+      `insert into expected_income (label, amount, cadence_days, starts_on, ends_on, confidence, notes)
+       values ($1,$2,$3,$4,$5,coalesce($6,'likely'),$7) returning *`,
+      [
+        String(label).trim(), Math.abs(Number(amount)).toFixed(2),
+        Math.round(Number(cadence)), startsOn || null, endsOn || null,
+        confidence ?? null, notes ?? null,
+      ],
     );
     res.status(201).json({ income: rows[0] });
   } catch (err) {
@@ -177,16 +184,21 @@ analystRouter.post('/expected-income', async (req, res, next) => {
 
 analystRouter.post('/expected-income/:id', async (req, res, next) => {
   try {
-    const { active, amount, starts_on: startsOn, confidence } = req.body ?? {};
+    const { active, amount, starts_on: startsOn, ends_on: endsOn, confidence } = req.body ?? {};
     const { rows } = await query(
       `update expected_income set
          active     = coalesce($2, active),
          amount     = coalesce($3, amount),
          starts_on  = coalesce($4, starts_on),
-         confidence = coalesce($5, confidence),
+         ends_on    = coalesce($5, ends_on),
+         confidence = coalesce($6, confidence),
          updated_at = now()
        where id = $1 returning *`,
-      [req.params.id, active ?? null, amount === undefined || amount === null ? null : Math.abs(Number(amount)).toFixed(2), startsOn ?? null, confidence ?? null],
+      [
+        req.params.id, active ?? null,
+        amount === undefined || amount === null ? null : Math.abs(Number(amount)).toFixed(2),
+        startsOn ?? null, endsOn ?? null, confidence ?? null,
+      ],
     );
     if (!rows.length) return res.status(404).json({ error: 'No such expected income' });
     res.json({ income: rows[0] });

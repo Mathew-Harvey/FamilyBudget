@@ -38,7 +38,7 @@ export async function trimPercent(client = { query }) {
 
 // Everything that goes out, tiered, with commitments separated from variable
 // spending because they are stopped in different ways.
-async function tieredCosts({ client, window }) {
+export async function tieredCosts({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
   const rate = await everydaySpendRate(window, client);
 
   // The recurring costs, which are stopped by name.

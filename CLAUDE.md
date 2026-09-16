@@ -314,7 +314,9 @@ reported at 25.37 a month, twelve times over. `debts()` needs three payments
 before it claims a rate, the Spending page needs a merchant paid on three
 separate days, and `discretionary()` gates on distinct DATES rather than rows,
 because three payments to a builder in one afternoon is one event and counting
-rows made it a recurring habit.
+rows made it a recurring habit. The Forecast page applies the same three date
+gate to each merchant in its recurring essentials baseline. Costs below the
+gate are named as irregular rather than silently turned into a monthly rate.
 
 **Do not amortise annual bills into the spend rate. This was tried and
 measured.** Rating a bill over its own period instead of the window is
@@ -346,6 +348,15 @@ must be true and must agree with the rest of the app, nothing is ever attributed
 to Mat or to Skye by name, and the page never implies that cancelling a few
 subscriptions closes a gap it does not close. Read that document before changing
 anything on that page.
+
+**The Forecast page is an explicit scenario, while Today remains current
+reality.** Today includes the whole recent everyday rate because it says where
+the current path leads. Forecast starts with keep and trim costs, replaces cut
+day to day spending with a discretionary allowance, and labels its runway as a
+scenario. Active cut commitments remain included until their individual
+checkbox is turned off, because a subscription still being charged cannot
+quietly disappear. Anything `to_own_debt` stays essential regardless of its
+category.
 
 **The plan on /plan must say when cutting is not enough.** `src/lean.js` tiers
 every cost keep, trim or cut, and builds three cumulative steps that each name
@@ -410,7 +421,9 @@ that is money kept out of the budget on a description alone.
   back in more than one backfill window.
 - **The pay cycle is configured, not inferred.** History is suggested, but the
   figure someone sets always wins, because a job change makes the past a bad
-  guide.
+  guide. A future anchor is the first full payday and is a boundary, not merely
+  a day of month to project backwards through. A temporary expected income
+  stream belongs on the cash curve but not in the ongoing monthly income rate.
 - **Carry over starts from a bucket's first allocation**, so spending from
   before the bucket existed does not roll in as a debt.
 - **Changing the cadence removes periods of the old shape**, or two periods

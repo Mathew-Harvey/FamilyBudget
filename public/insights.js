@@ -209,7 +209,12 @@ async function loadLevers() {
       el('div', { class: 'row' }, [
         el('span', { class: 'grow truncate', text: stream.label }),
         el('span', { class: 'amount in', text: formatAmount(stream.amount) }),
-        el('span', { class: 'muted', text: `every ${stream.cadence_days}d${stream.starts_on ? `, from ${String(stream.starts_on).slice(0, 10)}` : ''}` }),
+        el('span', {
+          class: 'muted',
+          text: `every ${stream.cadence_days}d` +
+            `${stream.starts_on ? `, from ${String(stream.starts_on).slice(0, 10)}` : ''}` +
+            `${stream.ends_on ? ` to ${String(stream.ends_on).slice(0, 10)}` : ''}`,
+        }),
         el('span', { class: 'badge', text: stream.confidence }),
         remove,
       ]),
@@ -374,10 +379,13 @@ document.getElementById('addIncome').addEventListener('click', async () => {
         amount: document.getElementById('incAmount').value,
         cadence_days: document.getElementById('incCadence').value || 30,
         starts_on: document.getElementById('incStart').value || null,
+        ends_on: document.getElementById('incEnd').value || null,
         confidence: document.getElementById('incConfidence').value,
       },
     });
-    for (const id of ['incLabel', 'incAmount', 'incStart']) document.getElementById(id).value = '';
+    for (const id of ['incLabel', 'incAmount', 'incStart', 'incEnd']) {
+      document.getElementById(id).value = '';
+    }
     await loadLevers();
     showError('');
   } catch (err) {

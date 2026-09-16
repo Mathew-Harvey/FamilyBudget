@@ -2,6 +2,8 @@ import { api, el, formatAmount, formatDate, renderNav, showError } from '/app.js
 
 renderNav('/forecast');
 
+const excludedLuxuryCommitments = new Set();
+
 // A plain inline SVG line chart. No chart library, and it reads in both themes
 // because it uses the same custom properties as everything else.
 function chart(series, bufferText) {
@@ -82,12 +84,55 @@ function commitmentRow(commitment) {
   ]);
 }
 
+function renderLuxury(luxury) {
+  const holder = document.getElementById('luxuryCommitments');
+  holder.innerHTML = '';
+  const rows = luxury?.active_commitments ?? [];
+  if (!rows.length) {
+    holder.append(el('p', { class: 'muted', text: 'No active optional commitments.' }));
+    return;
+  }
+
+  holder.append(
+    el('div', { class: 'muted', text:
+      `${formatAmount(luxury.included_commitments_per_month)} a month is currently included in optional commitments.` }),
+    el('div', { class: 'stack', style: 'gap:0.2rem' }, rows.map((commitment) => {
+      const toggle = el('input', {
+        type: 'checkbox',
+        checked: commitment.included,
+        onChange: async (event) => {
+          if (event.target.checked) excludedLuxuryCommitments.delete(String(commitment.id));
+          else excludedLuxuryCommitments.add(String(commitment.id));
+          await load();
+        },
+      });
+      return el('label', {
+        class: 'row',
+        style: 'display:flex;margin:0;padding:0.2rem 0',
+      }, [
+        toggle,
+        el('span', { class: 'grow truncate', text: commitment.label }),
+        el('span', { class: 'amount', text: `${formatAmount(commitment.per_month)} a month` }),
+      ]);
+    })),
+  );
+}
+
 async function load() {
   try {
     const days = document.getElementById('days').value;
     const buffer = document.getElementById('buffer').value || 0;
-    const window = document.getElementById('window').value || 60;
-    const data = await api(`/api/forecast?days=${days}&buffer=${buffer}&window=${window}`);
+    const window = document.getElementById('window').value || 120;
+    const useDiscretionary = document.getElementById('includeDiscretionary').checked;
+    const discretionary = useDiscretionary
+      ? document.getElementById('discretionaryAmount').value || 0
+      : 0;
+    const params = new URLSearchParams({ days, buffer, window, discretionary });
+    if (excludedLuxuryCommitments.size) {
+      params.set('exclude_commitments', [...excludedLuxuryCommitments].join(','));
+    }
+    const data = await api(`/api/forecast?${params}`);
+    renderLuxury(data.luxury);
 
     const summary = document.getElementById('summary');
     summary.innerHTML = '';
@@ -98,7 +143,7 @@ async function load() {
           el('div', { class: 'amount in', style: 'font-size:1.4rem', text: formatAmount(data.opening_balance) }),
         ]),
         el('div', { style: 'text-align:right' }, [
-          el('div', { class: 'muted', text: 'Runway' }),
+          el('div', { class: 'muted', text: 'Scenario runway' }),
           el('div', {
             class: `amount ${data.runway_date ? 'out' : 'in'}`,
             style: 'font-size:1.4rem',
@@ -111,16 +156,27 @@ async function load() {
     summary.append(
       el('div', { class: 'muted' }, [
         `Income ${formatAmount(data.expected_income.amount)} each ${data.cycle?.cadence || 'period'} (${data.expected_income.source}). `,
-        `Everyday spending ${formatAmount(data.everyday_rate.per_day)} a day from the last ${data.spend_window_days} days. `,
-        `Committed ${formatAmount(data.everyday_rate.committed)} in that window.`,
+        `Recurring essential spending ${formatAmount(data.projected_everyday_rate.essential_per_day)} a day from the last ${data.spend_window_days} days. `,
+        `Discretionary allowance ${formatAmount(data.luxury.allowance_per_month)} a month. `,
+        `Optional commitments included ${formatAmount(data.luxury.included_commitments_per_month)} a month.`,
       ]),
     );
-    // The same rate over the other windows, so it is obvious when a one off is
-    // skewing things and the runway should be read with that in mind.
+    summary.append(el('div', {
+      class: 'muted',
+      text: `Recent optional day-to-day spending averaged ${formatAmount(data.luxury.historical_variable_per_month)} a month. This scenario replaces that with the allowance above.`,
+    }));
+    if (Number(data.everyday_rate.irregular_essential) > 0) {
+      summary.append(el('div', {
+        class: 'muted',
+        text: `${formatAmount(data.everyday_rate.irregular_essential)} of essential spending occurred at places seen on fewer than three dates, so it is not presented as a regular rate.`,
+      }));
+    }
+    // The same essential rate over the other windows, so it is obvious when
+    // irregular spending is skewing the baseline.
     const spread = Object.entries(data.rate_by_window || {})
-      .map(([span, rate]) => `${span}d ${formatAmount(rate.per_day)}`)
+      .map(([span, rate]) => `${span}d ${formatAmount(rate.recurring_essential_per_day)}`)
       .join(', ');
-    if (spread) summary.append(el('div', { class: 'muted', text: `Per day by window: ${spread}. Recent is the better guide.` }));
+    if (spread) summary.append(el('div', { class: 'muted', text: `Recurring essentials per day by window: ${spread}.` }));
     summary.append(
       el('div', { class: 'muted', text: `Lowest point ${formatAmount(data.lowest_balance)} on ${data.lowest_date}.` }),
     );
@@ -141,7 +197,10 @@ async function load() {
             el('tr', {}, [
               el('td', { 'data-col': 'description', class: 'truncate', text: event.label }),
               el('td', { 'data-col': 'amount', class: 'right' }, [
-                el('span', { class: `amount ${event.kind === 'income' ? 'in' : 'out'}`, text: formatAmount(event.amount) }),
+                el('span', {
+                  class: `amount ${['income', 'expected_income'].includes(event.kind) ? 'in' : 'out'}`,
+                  text: formatAmount(event.amount),
+                }),
               ]),
               el('td', { 'data-col': 'meta', class: 'muted', text: event.date }),
             ]),
@@ -167,6 +226,11 @@ async function load() {
 document.getElementById('days').addEventListener('change', load);
 document.getElementById('buffer').addEventListener('change', load);
 document.getElementById('window').addEventListener('change', load);
+document.getElementById('includeDiscretionary').addEventListener('change', (event) => {
+  document.getElementById('discretionaryAmount').disabled = !event.target.checked;
+  load();
+});
+document.getElementById('discretionaryAmount').addEventListener('change', load);
 document.getElementById('redetect').addEventListener('click', async () => {
   document.getElementById('detectState').textContent = 'Looking...';
   try {

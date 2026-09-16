@@ -131,7 +131,10 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
         (projection.cycle.cadence === 'monthly' ? MONTH_DAYS : projection.cycle.cadence === 'fortnightly' ? 14 : 7))
     : 0;
   const streamsMonthly = (projection.expected_income_streams ?? [])
-    .filter((stream) => stream.confidence !== 'possible')
+    // A stream with an end date is temporary, including a one-time partial
+    // first pay. It belongs on the cash curve, not in the ongoing monthly
+    // income figure used to decide whether the household is going backwards.
+    .filter((stream) => stream.confidence !== 'possible' && !stream.ends_on)
     .reduce((total, stream) => total + Math.round((toCents(stream.amount) * MONTH_DAYS) / Number(stream.cadence_days || 30)), 0);
   const inMonthly = cycleMonthly + streamsMonthly;
 

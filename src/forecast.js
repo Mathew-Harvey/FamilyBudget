@@ -9,7 +9,7 @@
 // Only liquid accounts count. The mortgage is a debt, not a buffer, and its
 // redraw is deliberately ignored: it is money we would have to borrow back.
 import { query } from './db.js';
-import { numericToCents, centsToNumeric } from './money.js';
+import { numericToCents, centsToNumeric, assertCents } from './money.js';
 import { today as householdToday, addDays } from './dates.js';
 import { periodsBetween, getPayCycle } from './buckets.js';
 import { upcomingCommitments, matchKeyFor, medianCents } from './commitments.js';
@@ -87,8 +87,12 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
   // month, and waiting for the window to forget them is two months of a
   // forecast that is knowably wrong.
   const { rows } = await client.query(
-    `select t.amount, coalesce(t.display_description, t.description) as label
+    `select t.amount, t.txn_date, t.merchant_key, t.to_own_debt,
+            coalesce(t.display_description, t.description) as label,
+            coalesce(m.lean_tier, cat.lean_tier, 'cut') as tier
        from budget_flows t
+       left join merchants m on m.match_key = t.merchant_key
+       left join categories cat on cat.id = t.category_id
       where t.counts and t.amount < 0
         and not t.one_off
         and not t.no_longer_expected
@@ -111,10 +115,42 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
 
   let totalCents = 0;
   let committedCents = 0;
+  let essentialCents = 0;
+  let recurringEssentialCents = 0;
+  let irregularEssentialCents = 0;
+  let discretionaryCents = 0;
+  const variableRows = [];
   for (const row of rows) {
     const cents = -toCents(row.amount);
     totalCents += cents;
-    if (keys.has(matchKeyFor(row.label))) committedCents += cents;
+    if (keys.has(matchKeyFor(row.label))) {
+      committedCents += cents;
+    } else {
+      variableRows.push({ ...row, cents });
+    }
+  }
+
+  // A single purchase is not a rate. Group by merchant where the bank supplied
+  // one, otherwise by the same stable label key used for commitments. Three
+  // distinct dates is the minimum evidence that an essential cost recurs.
+  const datesByPlace = new Map();
+  for (const row of variableRows) {
+    const place = row.merchant_key || matchKeyFor(row.label) || row.label;
+    if (!datesByPlace.has(place)) datesByPlace.set(place, new Set());
+    datesByPlace.get(place).add(String(row.txn_date));
+    row.place = place;
+  }
+
+  for (const row of variableRows) {
+    if (row.tier === 'cut' && !row.to_own_debt) {
+      discretionaryCents += row.cents;
+    } else {
+      // Both keep and trim are necessities. Trim means the amount is flexible,
+      // not that food, fuel or care can disappear from the baseline.
+      essentialCents += row.cents;
+      if (datesByPlace.get(row.place).size >= 3) recurringEssentialCents += row.cents;
+      else irregularEssentialCents += row.cents;
+    }
   }
 
   // Divide by the days we could actually have seen spending in, not by the days
@@ -131,7 +167,7 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
     : days;
   const effectiveDays = Math.max(Math.min(days, covered), 1);
 
-  const everydayCents = Math.max(totalCents - committedCents, 0);
+  const everydayCents = essentialCents + discretionaryCents;
   return {
     days,
     effective_days: effectiveDays,
@@ -144,6 +180,19 @@ export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client
     not_expected_again_transactions: excluded.transactions,
     per_day_cents: Math.round(everydayCents / effectiveDays),
     per_day: fromCents(Math.round(everydayCents / effectiveDays)),
+    essential: fromCents(essentialCents),
+    essential_per_day_cents: Math.round(essentialCents / effectiveDays),
+    essential_per_day: fromCents(Math.round(essentialCents / effectiveDays)),
+    recurring_essential: fromCents(recurringEssentialCents),
+    recurring_essential_per_day_cents: Math.round(recurringEssentialCents / effectiveDays),
+    recurring_essential_per_day: fromCents(Math.round(recurringEssentialCents / effectiveDays)),
+    irregular_essential: fromCents(irregularEssentialCents),
+    irregular_essential_transactions: variableRows.filter(
+      (row) => row.tier !== 'cut' && datesByPlace.get(row.place).size < 3,
+    ).length,
+    discretionary: fromCents(discretionaryCents),
+    discretionary_per_day_cents: Math.round(discretionaryCents / effectiveDays),
+    discretionary_per_day: fromCents(Math.round(discretionaryCents / effectiveDays)),
   };
 }
 
@@ -200,6 +249,10 @@ export async function forecast({
   // rather than as a number of dollars. Neither changes anything stored.
   spendAdjustmentCentsPerDay = 0,
   excludeCommitmentIds = [],
+  // Null preserves the current-real-life forecast used by Today and alerts.
+  // A cents value builds a deliberate scenario from necessities plus that
+  // monthly allowance, which is what the Forecast page exposes.
+  discretionaryCentsPerMonth = null,
 } = {}) {
   const cycle = await getPayCycle(client);
   const opening = await liquidBalance(client);
@@ -219,7 +272,10 @@ export async function forecast({
   const paydays = cycle
     ? periodsBetween(cycle.cadence, cycle.anchor_date, today, end)
         .map((period) => period.starts_on)
-        .filter((date) => date >= today && date <= end)
+        // A future anchor is the first full payday for a new job. The monthly
+        // pattern can be walked backwards, but pay from before the job starts
+        // must not be invented.
+        .filter((date) => date >= today && date >= cycle.anchor_date && date <= end)
     : [];
 
   const skip = new Set(excludeCommitmentIds.map(String));
@@ -317,6 +373,19 @@ export async function forecast({
   }
 
   const bufferCents = toCents(buffer);
+  const allowanceCents = discretionaryCentsPerMonth === null
+    ? null
+    : Math.max(assertCents(discretionaryCentsPerMonth, 'discretionary allowance'), 0);
+  const allowancePerDayCents = allowanceCents === null
+    ? null
+    : Math.round((allowanceCents * 100) / 3044);
+  const baseEverydayPerDayCents = allowancePerDayCents === null
+    ? rate.per_day_cents
+    : rate.recurring_essential_per_day_cents + allowancePerDayCents;
+  const projectedEverydayPerDayCents = Math.max(
+    baseEverydayPerDayCents - spendAdjustmentCentsPerDay,
+    0,
+  );
   let balanceCents = opening.total_cents;
   const series = [];
   let runwayDate = null;
@@ -336,7 +405,7 @@ export async function forecast({
     // days, silently. Hypotheticals apply whatever day they fall on.
     if (day > 0) {
       for (const event of events) balanceCents += event.amount_cents;
-      balanceCents -= Math.max(rate.per_day_cents - spendAdjustmentCentsPerDay, 0);
+      balanceCents -= projectedEverydayPerDayCents;
     } else {
       for (const event of events) {
         if (event.kind === 'scenario') balanceCents += event.amount_cents;
@@ -363,6 +432,14 @@ export async function forecast({
     opening_balance: opening.total,
     liquid_accounts: opening.accounts,
     everyday_rate: rate,
+    projected_everyday_rate: {
+      basis: allowanceCents === null ? 'recent spending' : 'essentials plus allowance',
+      per_day_cents: projectedEverydayPerDayCents,
+      per_day: fromCents(projectedEverydayPerDayCents),
+      essential_per_day_cents: rate.recurring_essential_per_day_cents,
+      essential_per_day: rate.recurring_essential_per_day,
+      discretionary_allowance_per_month: allowanceCents === null ? null : fromCents(allowanceCents),
+    },
     rate_by_window: rateByWindow,
     spend_window_days: window,
     expected_income: { amount: fromCents(income.cents), source: income.source },
