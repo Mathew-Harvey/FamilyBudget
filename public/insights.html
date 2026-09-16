@@ -32,6 +32,45 @@
     <div class="muted" id="runState"></div>
   </div>
 
+  <h2>Can we afford it</h2>
+  <p class="muted">Put a number and a thing. It works out what that does to the runway, then suggests ways to make it work: selling something, trimming something, or waiting.</p>
+  <div class="card stack">
+    <div class="filters">
+      <div><label for="affordWhat">What</label><input id="affordWhat" style="width:100%" placeholder="A push bike"></div>
+      <div><label for="affordAmount">How much</label><input id="affordAmount" type="number" step="0.01" style="width:100%" placeholder="5000"></div>
+      <div><label for="affordWhen">When</label><input id="affordWhen" type="date" style="width:100%"></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="affordButton">Work it out</button>
+      <button id="trimButton">Where could we trim</button>
+      <span class="muted" id="affordState"></span>
+    </div>
+    <div id="affordResult"></div>
+  </div>
+
+  <h2>Levers</h2>
+  <p class="muted">Things we could sell, and income we expect but that has not started. The forecast counts expected income from its start date, and the planner knows what could be sold.</p>
+  <div class="card stack">
+    <div class="filters">
+      <div><label for="assetName">Something we could sell</label><input id="assetName" style="width:100%" placeholder="Motorbike"></div>
+      <div><label for="assetValue">Worth about</label><input id="assetValue" type="number" step="0.01" style="width:100%" placeholder="10000"></div>
+    </div>
+    <div class="row"><button id="addAsset">Add it</button></div>
+    <div id="assetList"></div>
+    <hr style="border:0;border-top:1px solid var(--line);width:100%">
+    <div class="filters">
+      <div><label for="incLabel">Income expected</label><input id="incLabel" style="width:100%" placeholder="Skye returning to work"></div>
+      <div><label for="incAmount">Amount</label><input id="incAmount" type="number" step="0.01" style="width:100%" placeholder="4800"></div>
+      <div><label for="incCadence">Every (days)</label><input id="incCadence" type="number" value="30" style="width:100%"></div>
+      <div><label for="incStart">Starting</label><input id="incStart" type="date" style="width:100%"></div>
+      <div><label for="incConfidence">How sure</label><select id="incConfidence" style="width:100%">
+        <option value="confirmed">confirmed</option><option value="likely" selected>likely</option><option value="possible">possible</option>
+      </select></div>
+    </div>
+    <div class="row"><button id="addIncome">Add it</button></div>
+    <div id="incomeList"></div>
+  </div>
+
   <h2>Something coming up</h2>
   <p class="muted">Tell it about a cost you know is coming, in plain words. It works out the shape and you decide whether to add it.</p>
   <div class="card stack">

@@ -110,7 +110,17 @@ export async function expectedIncomeCents(client = { query }) {
 }
 
 // The day by day projection.
-export async function forecast({ days = 90, buffer = 0, client = { query } } = {}) {
+export async function forecast({
+  days = 90,
+  buffer = 0,
+  client = { query },
+  // Which expected income to believe. A scenario can ask for the confirmed
+  // only, to see how it looks without the hopeful money.
+  includeConfidence = ['confirmed', 'likely'],
+  // One off amounts applied on a date, which is how a purchase is tested
+  // against the runway without changing anything stored.
+  extraEvents = [],
+} = {}) {
   const cycle = await getPayCycle(client);
   const opening = await liquidBalance(client);
   const rate = await everydaySpendRate(90, client);
@@ -128,6 +138,18 @@ export async function forecast({ days = 90, buffer = 0, client = { query } } = {
 
   const commitments = await upcomingCommitments(today, end, client);
 
+  // Income we know is coming but that has not appeared in the history yet: a
+  // job starting, a side income beginning. Counted from its start date, so the
+  // runway is not pessimistic about money we are confident of. A scenario can
+  // exclude the less certain ones.
+  const { rows: expected } = await client.query(
+    `select label, amount, cadence_days, starts_on, ends_on, confidence
+       from expected_income
+      where active and confidence = any($1::text[])
+      order by starts_on nulls first`,
+    [includeConfidence],
+  );
+
   // Bucket everything by date so one pass builds the curve.
   const eventsByDate = new Map();
   const push = (date, event) => {
@@ -135,11 +157,37 @@ export async function forecast({ days = 90, buffer = 0, client = { query } } = {
     eventsByDate.get(date).push(event);
   };
   for (const date of paydays) push(date, { kind: 'income', label: 'Pay', amount_cents: income.cents });
+
+  for (const stream of expected) {
+    const cadence = Number(stream.cadence_days);
+    let when = toDate(stream.starts_on ?? today);
+    // Something already under way is picked up from today rather than replayed
+    // from its start date.
+    while (iso(when) < today) when = new Date(when.getTime() + cadence * DAY_MS);
+    const stops = stream.ends_on ? toDate(stream.ends_on) : null;
+    while (iso(when) <= end && (!stops || when <= stops)) {
+      push(iso(when), {
+        kind: 'expected_income',
+        label: `${stream.label} (${stream.confidence})`,
+        amount_cents: toCents(stream.amount),
+      });
+      when = new Date(when.getTime() + cadence * DAY_MS);
+    }
+  }
   for (const commitment of commitments) {
     push(commitment.date, {
       kind: 'commitment',
       label: commitment.label,
       amount_cents: toCents(commitment.amount),
+    });
+  }
+
+  // Scenario events, for example "what if we spend 5000 on a bike in November".
+  for (const event of extraEvents) {
+    push(event.date, {
+      kind: event.kind ?? 'scenario',
+      label: event.label,
+      amount_cents: toCents(event.amount),
     });
   }
 
@@ -179,6 +227,7 @@ export async function forecast({ days = 90, buffer = 0, client = { query } } = {
     expected_income: { amount: fromCents(income.cents), source: income.source },
     cycle,
     paydays,
+    expected_income_streams: expected,
     runway_date: runwayDate,
     runway_days: runwayDate ? Math.round((toDate(runwayDate).getTime() - toDate(today).getTime()) / DAY_MS) : null,
     buffer: fromCents(bufferCents),

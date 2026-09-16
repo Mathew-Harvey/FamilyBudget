@@ -482,6 +482,183 @@ export async function acceptProposal(proposal, client = { query }) {
   return rows[0];
 }
 
+
+// --- affordability and trimming ------------------------------------------
+
+// What could realistically be cut, ranked by what it is worth a month. The
+// planner needs this to answer "how do we afford X" with something other than
+// "spend less".
+export async function trimmableSpend(client = { query }) {
+  const { rows: recurring } = await client.query(
+    `select c.label, c.typical_amount, c.cadence_days,
+            cat.name as category, grp.name as group_name
+       from commitments c
+       left join categories cat on cat.id = c.category_id
+       left join categories grp on grp.id = cat.parent_id
+      where c.active
+      order by (-c.typical_amount) / greatest(c.cadence_days, 1) desc
+      limit 40`,
+  );
+
+  // Everyday spending by category, which is where the discretionary money goes
+  // even when no single line looks large.
+  const { rows: byCategory } = await client.query(
+    `select grp.name as group_name, cat.name as category,
+            count(*)::int as transactions,
+            sum(-t.amount) as spent_90_days,
+            sum(-t.amount) / 3 as per_month
+       from budget_flows t
+       join categories cat on cat.id = t.category_id
+       left join categories grp on grp.id = cat.parent_id
+      where t.counts and t.amount < 0 and cat.kind = 'expense'
+        and t.txn_date >= current_date - 90
+      group by grp.name, cat.name
+      order by sum(-t.amount) desc`,
+  );
+
+  return {
+    recurring: recurring.map((row) => ({
+      label: scrubLabel(row.label),
+      amount: row.typical_amount,
+      cadence_days: row.cadence_days,
+      category: row.category,
+      group: row.group_name,
+      // Comparable across cadences, which is the only fair way to rank them.
+      per_month: (Math.abs(Number(row.typical_amount)) * (30.44 / row.cadence_days)).toFixed(2),
+    })),
+    by_category: byCategory,
+  };
+}
+
+const AFFORD_SCHEMA = {
+  type: 'object',
+  properties: {
+    verdict: {
+      type: 'string',
+      enum: ['yes comfortably', 'yes but tight', 'only with changes', 'not yet'],
+    },
+    headline: { type: 'string', description: 'One sentence answer, with the key number in it.' },
+    reasoning: { type: 'string', description: 'How you got there, briefly, using their figures.' },
+    paths: {
+      type: 'array',
+      description: 'Distinct ways to make it work. Order them best first. Two to four is plenty.',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          steps: { type: 'array', items: { type: 'string' } },
+          frees_up: { type: ['string', 'null'], description: 'Total dollars this path raises or saves, as a plain number string.' },
+          when_affordable: { type: ['string', 'null'], description: 'YYYY-MM-DD the purchase becomes safe under this path, or null.' },
+          tradeoff: { type: 'string', description: 'What it costs them, honestly.' },
+        },
+        required: ['name', 'steps', 'frees_up', 'when_affordable', 'tradeoff'],
+        additionalProperties: false,
+      },
+    },
+    trims: {
+      type: 'array',
+      description: 'Specific things to cut or reduce, largest first. Name the actual line item.',
+      items: {
+        type: 'object',
+        properties: {
+          what: { type: 'string' },
+          monthly_saving: { type: 'string', description: 'A positive dollar amount, as a plain number string.' },
+          how: { type: 'string' },
+          pain: { type: 'string', enum: ['low', 'medium', 'high'] },
+        },
+        required: ['what', 'monthly_saving', 'how', 'pain'],
+        additionalProperties: false,
+      },
+    },
+    risks: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['verdict', 'headline', 'reasoning', 'paths', 'trims', 'risks'],
+  additionalProperties: false,
+};
+
+// "Can we spend 5000 on a bike without going broke, and if not, what would have
+// to change." The arithmetic is done here and handed over: Claude is asked to
+// plan, not to do sums it cannot check.
+export async function afford({ amount, description, when = null, client = { query }, messages } = {}) {
+  const settings = await getAnalystSettings(client);
+  const cost = Math.abs(Number(amount));
+  if (!Number.isFinite(cost) || cost <= 0) throw new Error('An amount is required.');
+
+  const date = when || new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+
+  const baseline = await forecast({ days: 365, client });
+  const scenario = await forecast({
+    days: 365,
+    client,
+    extraEvents: [{ date, label: description || 'One off purchase', amount: -cost }],
+  });
+  // The same question without the income that is only hoped for, which is the
+  // honest version of the answer.
+  const confirmedOnly = await forecast({
+    days: 365,
+    client,
+    includeConfidence: ['confirmed'],
+    extraEvents: [{ date, label: description || 'One off purchase', amount: -cost }],
+  });
+
+  const { rows: assets } = await client.query(
+    'select name, estimated_value, sellable, notes from assets where sold_on is null order by estimated_value desc',
+  );
+  const snapshot = await buildSnapshot(client);
+  const trims = await trimmableSpend(client);
+
+  const record = await ask({
+    snapshot: {
+      ...snapshot,
+      purchase: { description: description || 'a one off purchase', amount: cost.toFixed(2), planned_for: date },
+      runway_now_days: baseline.runway_days,
+      runway_if_bought_days: scenario.runway_days,
+      runway_if_bought_confirmed_income_only_days: confirmedOnly.runway_days,
+      expected_income_streams: baseline.expected_income_streams,
+      assets_that_could_be_sold: assets,
+      what_could_be_trimmed: trims,
+    },
+    question: description ? `Can we afford ${description} at $${cost.toFixed(2)}?` : null,
+    kind: 'afford',
+    effort: settings?.effort ?? 'high',
+    schema: AFFORD_SCHEMA,
+    messages,
+    instruction: [
+      'The household wants to make a one off purchase and needs to know whether they can, and if not, what would have to change.',
+      'The arithmetic has already been done for you: runway_now_days, runway_if_bought_days, and the same again counting only confirmed income.',
+      'Do not recompute those. Explain what they mean and build the paths.',
+      'Use every lever in the snapshot: selling an asset, trimming a named recurring cost, delaying until income starts, or paying over time.',
+      'Name actual line items when you propose a trim. "Cut subscriptions" is useless, "Cursor at $351 a month" is not.',
+      'Be honest about the version where the hoped for income does not arrive.',
+    ].join(' '),
+  });
+  return store(record, client);
+}
+
+// Just the trimming question, without a purchase attached.
+export async function suggestTrims({ client = { query }, messages } = {}) {
+  const settings = await getAnalystSettings(client);
+  const snapshot = await buildSnapshot(client);
+  const trims = await trimmableSpend(client);
+  const { rows: assets } = await client.query(
+    'select name, estimated_value, sellable from assets where sold_on is null order by estimated_value desc',
+  );
+
+  const record = await ask({
+    snapshot: { ...snapshot, what_could_be_trimmed: trims, assets_that_could_be_sold: assets },
+    kind: 'on_demand',
+    effort: settings?.effort ?? 'high',
+    messages,
+    instruction: [
+      'Find where this household could realistically spend less, largest first.',
+      'Name actual line items and their real monthly cost. Group things that belong together, for example all the AI and developer tooling.',
+      'Say plainly what each cut would hurt. Do not propose cutting things that are already small.',
+      'Put the trims in predicted_expenses only if they are new costs. Cuts belong in recommendations, with the monthly saving as estimated_monthly_impact.',
+    ].join(' '),
+  });
+  return store(record, client);
+}
+
 // Called at the end of a sync. Only runs when it is switched on and the cadence
 // has come round, so a twice daily sync does not mean twice daily analysis.
 export async function runPeriodicAnalysis(options = {}) {

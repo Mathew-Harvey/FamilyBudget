@@ -131,6 +131,92 @@ async function loadManual() {
   }
 }
 
+function affordCard(r) {
+  const verdictClass = r.verdict === 'yes comfortably' ? 'in' : r.verdict === 'not yet' ? 'out' : '';
+  const bits = [
+    el('div', { class: 'row' }, [
+      el('span', { class: `badge ${r.verdict === 'not yet' ? 'pending' : ''}`, text: r.verdict }),
+      el('strong', { text: r.headline }),
+    ]),
+    el('p', { style: 'margin:0', text: r.reasoning }),
+  ];
+
+  for (const path of r.paths ?? []) {
+    bits.push(
+      el('div', { class: 'card stack', style: 'margin:0' }, [
+        el('div', { class: 'row' }, [
+          el('strong', { text: path.name }),
+          path.frees_up ? el('span', { class: 'amount in', text: formatAmount(path.frees_up) }) : null,
+          path.when_affordable ? el('span', { class: 'muted', text: `affordable from ${path.when_affordable}` }) : null,
+        ]),
+        el('ul', { style: 'margin:0;padding-left:1.1rem' }, (path.steps ?? []).map((step) => el('li', { text: step }))),
+        el('div', { class: 'muted', text: `Trade off: ${path.tradeoff}` }),
+      ]),
+    );
+  }
+
+  if ((r.trims ?? []).length) {
+    bits.push(el('strong', { text: 'Where the money could come from' }));
+    for (const trim of r.trims) {
+      bits.push(
+        el('div', { class: 'row' }, [
+          el('span', { class: 'badge', text: `${trim.pain} pain` }),
+          el('span', { class: 'amount in', text: `${formatAmount(trim.monthly_saving)}/mo` }),
+          el('span', { class: 'grow', text: `${trim.what}. ${trim.how}` }),
+        ]),
+      );
+    }
+  }
+
+  for (const risk of r.risks ?? []) bits.push(el('div', { class: 'muted', text: `Risk: ${risk}` }));
+  return el('div', { class: 'stack' }, bits);
+}
+
+async function loadLevers() {
+  const { assets, expected_income: income } = await api('/api/analyst/levers');
+
+  const assetHolder = document.getElementById('assetList');
+  assetHolder.innerHTML = '';
+  for (const asset of assets) {
+    const remove = el('button', { class: 'small', text: 'Remove' });
+    remove.addEventListener('click', async () => {
+      await api(`/api/analyst/assets/${asset.id}`, { method: 'DELETE' });
+      await loadLevers();
+    });
+    assetHolder.append(
+      el('div', { class: 'row' }, [
+        el('span', { class: 'grow truncate', text: asset.name }),
+        el('span', { class: 'amount in', text: formatAmount(asset.estimated_value) }),
+        asset.sold_on ? el('span', { class: 'badge', text: `sold ${asset.sold_on}` }) : null,
+        remove,
+      ]),
+    );
+  }
+  if (assets.length) {
+    const total = assets.filter((a) => a.sellable && !a.sold_on).reduce((sum, a) => sum + Number(a.estimated_value), 0);
+    assetHolder.append(el('div', { class: 'muted', text: `${formatAmount(total.toFixed(2))} could be raised by selling.` }));
+  }
+
+  const incomeHolder = document.getElementById('incomeList');
+  incomeHolder.innerHTML = '';
+  for (const stream of income) {
+    const remove = el('button', { class: 'small', text: 'Remove' });
+    remove.addEventListener('click', async () => {
+      await api(`/api/analyst/expected-income/${stream.id}`, { method: 'DELETE' });
+      await loadLevers();
+    });
+    incomeHolder.append(
+      el('div', { class: 'row' }, [
+        el('span', { class: 'grow truncate', text: stream.label }),
+        el('span', { class: 'amount in', text: formatAmount(stream.amount) }),
+        el('span', { class: 'muted', text: `every ${stream.cadence_days}d${stream.starts_on ? `, from ${String(stream.starts_on).slice(0, 10)}` : ''}` }),
+        el('span', { class: 'badge', text: stream.confidence }),
+        remove,
+      ]),
+    );
+  }
+}
+
 async function load() {
   const { settings, claude, analyses } = await api('/api/analyst');
   document.getElementById('enabled').checked = settings.enabled;
@@ -232,8 +318,76 @@ document.getElementById('addAccount').addEventListener('click', async () => {
   }
 });
 
+async function runAfford(endpoint, body) {
+  const holder = document.getElementById('affordResult');
+  const state = document.getElementById('affordState');
+  holder.innerHTML = '';
+  state.textContent = 'Thinking, this takes a moment...';
+  try {
+    const { analysis } = await api(endpoint, { method: 'POST', body });
+    state.textContent = '';
+    holder.append(analysis.result.verdict ? affordCard(analysis.result) : analysisCard(analysis));
+    await load();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+    state.textContent = '';
+  }
+}
+
+document.getElementById('affordButton').addEventListener('click', () => {
+  const amount = document.getElementById('affordAmount').value;
+  if (!amount) return showError('Put in an amount first');
+  return runAfford('/api/analyst/afford', {
+    amount,
+    description: document.getElementById('affordWhat').value || null,
+    when: document.getElementById('affordWhen').value || null,
+  });
+});
+
+document.getElementById('trimButton').addEventListener('click', () => runAfford('/api/analyst/trim', {}));
+
+document.getElementById('addAsset').addEventListener('click', async () => {
+  try {
+    await api('/api/analyst/assets', {
+      method: 'POST',
+      body: {
+        name: document.getElementById('assetName').value,
+        estimated_value: document.getElementById('assetValue').value,
+      },
+    });
+    document.getElementById('assetName').value = '';
+    document.getElementById('assetValue').value = '';
+    await loadLevers();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+document.getElementById('addIncome').addEventListener('click', async () => {
+  try {
+    await api('/api/analyst/expected-income', {
+      method: 'POST',
+      body: {
+        label: document.getElementById('incLabel').value,
+        amount: document.getElementById('incAmount').value,
+        cadence_days: document.getElementById('incCadence').value || 30,
+        starts_on: document.getElementById('incStart').value || null,
+        confidence: document.getElementById('incConfidence').value,
+      },
+    });
+    for (const id of ['incLabel', 'incAmount', 'incStart']) document.getElementById(id).value = '';
+    await loadLevers();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
 try {
   await load();
+  await loadLevers();
 } catch (err) {
   showError(err.message);
 }

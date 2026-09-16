@@ -20,7 +20,7 @@ import { centsToNumeric, numericToCents } from '../src/money.js';
 beforeEach(async () => {
   const pool = await resetDatabase();
   await pool.query(
-    'truncate analyses, alert_log, commitments, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade',
+    'truncate analyses, alert_log, commitments, expected_income, assets, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade',
   );
   await pool.query('update analyst_settings set enabled = false, last_run_at = null, cadence_days = 7');
   return pool;

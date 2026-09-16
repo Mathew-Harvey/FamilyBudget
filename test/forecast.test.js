@@ -12,7 +12,7 @@ import { centsToNumeric, numericToCents } from '../src/money.js';
 beforeEach(async () => {
   const pool = await resetDatabase();
   await pool.query(
-    'truncate alert_log, commitments, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade',
+    'truncate alert_log, commitments, expected_income, assets, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade',
   );
   await pool.query('update alert_settings set enabled = false, email_to = null');
   return pool;
@@ -316,4 +316,94 @@ test('a failed send is recorded as failed rather than lost', async () => {
   const { rows } = await pool.query("select status, error from alert_log where status = 'failed'");
   assert.ok(rows.length > 0);
   assert.match(rows[0].error, /provider said no/);
+});
+
+// --- what counts as spending --------------------------------------------
+
+test('interest charged to the mortgage is not household spending', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx9529', is_liquid: true });
+  const loan = await makeAccount(pool, { masked_number: 'xxxx0194', type: 'loan', is_liquid: false });
+
+  // A real purchase from the everyday account, and interest charged to the
+  // loan. Only the first is cash leaving the household.
+  await addTxn(pool, everyday.id, { date: daysAgo(5), cents: -5000, description: 'SHOP' });
+  await addTxn(pool, loan.id, { date: daysAgo(5), cents: -319731, description: 'Interest charged' });
+  await addTxn(pool, loan.id, { date: daysAgo(6), cents: -39500, description: 'Package Fee' });
+
+  const { rows } = await pool.query(
+    'select coalesce(sum(-amount), 0) as spent from budget_flows where counts and amount < 0',
+  );
+  assert.equal(
+    numericToCents(rows[0].spent),
+    5000,
+    'interest and fees charged to the loan change what is owed, they are not cash going out',
+  );
+});
+
+test('a repayment into the loan is still counted, because that cash does leave', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx9529', is_liquid: true });
+  const loan = await makeAccount(pool, { masked_number: 'xxxx0194', type: 'loan', is_liquid: false });
+
+  const out = await addTxn(pool, everyday.id, { date: daysAgo(3), cents: -180000, description: 'LN REPAY' });
+  const into = await addTxn(pool, loan.id, { date: daysAgo(3), cents: 180000, description: 'Repayment/Payment' });
+  await pool.query('update transactions set is_transfer = true, transfer_pair_id = $2 where id = $1', [out, into]);
+  await pool.query('update transactions set is_transfer = true, transfer_pair_id = $2 where id = $1', [into, out]);
+
+  const { rows } = await pool.query(
+    'select coalesce(sum(-amount), 0) as spent from budget_flows where counts and amount < 0',
+  );
+  assert.equal(numericToCents(rows[0].spent), 180000, 'only the side leaving the spendable account counts');
+});
+
+// --- levers the forecast can pull ----------------------------------------
+
+test('expected income that has not started yet extends the runway', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 100000);
+  for (let i = 1; i <= 100; i++) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
+  }
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  const bare = await forecast({ days: 120, client: pool });
+
+  await pool.query(
+    `insert into expected_income (label, amount, cadence_days, starts_on, confidence)
+     values ('A job starting', 500, 7, current_date + 3, 'likely')`,
+  );
+  const withJob = await forecast({ days: 120, client: pool });
+  assert.ok(
+    withJob.runway_days > bare.runway_days,
+    `income starting soon should extend the runway, ${bare.runway_days} to ${withJob.runway_days}`,
+  );
+
+  // The honest version, without the money that is only hoped for.
+  const confirmedOnly = await forecast({ days: 120, client: pool, includeConfidence: ['confirmed'] });
+  assert.equal(confirmedOnly.runway_days, bare.runway_days, 'a likely stream is excluded when only confirmed is asked for');
+});
+
+test('a one off purchase can be tested without storing anything', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 500000);
+  for (let i = 1; i <= 100; i++) {
+    await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
+  }
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  const before = await forecast({ days: 120, client: pool });
+  const after = await forecast({
+    days: 120,
+    client: pool,
+    extraEvents: [{ date: new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10), label: 'Bike', amount: -2000 }],
+  });
+
+  assert.ok(after.runway_days < before.runway_days, 'spending $2000 should bring the runway forward');
+  const { rows } = await pool.query('select count(*)::int as n from transactions');
+  assert.equal(rows[0].n, 100, 'a scenario must not write anything');
 });
