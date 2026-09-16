@@ -38,6 +38,20 @@ async function setBalance(pool, accountId, cents) {
   );
 }
 
+async function classifyTestSpendingAsEssential(pool) {
+  const { rows: [category] } = await pool.query(
+    `insert into categories (name, kind, lean_tier)
+     values ('Test essentials', 'expense', 'trim')
+     returning id`,
+  );
+  await pool.query(
+    `update transactions
+        set category_id = $1, merchant_key = coalesce(merchant_key, 'TEST ESSENTIAL')
+      where amount < 0 and category_id is null`,
+    [category.id],
+  );
+}
+
 // --- commitments ---------------------------------------------------------
 
 test('median is exact for odd and even counts', () => {
@@ -183,6 +197,7 @@ test('the runway is the day spendable cash first goes under', async () => {
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
   // No income, so nothing tops it back up.
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
@@ -202,6 +217,7 @@ test('income on payday pushes the runway out', async () => {
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
 
   await setPayCycle('weekly', daysAgo(7), '500', pool); // $500 a week
   await ensurePayPeriods({ pool });
@@ -219,6 +235,7 @@ test('a buffer brings the runway forward', async () => {
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
 
@@ -257,6 +274,7 @@ test('a short runway raises an alert', async () => {
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
 
@@ -366,6 +384,7 @@ test('expected income that has not started yet extends the runway', async () => 
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
 
@@ -393,6 +412,7 @@ test('a one off purchase can be tested without storing anything', async () => {
   for (let i = 1; i <= 100; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
 
@@ -458,6 +478,7 @@ test('the everyday rate follows the window, and recent is the default', async ()
   // Spending page uses, so a fixture that starts yesterday leaves one day empty
   // and the rate is honestly a day's worth lower.
   for (let i = 0; i <= 130; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
+  await classifyTestSpendingAsEssential(pool);
 
   const recent = await everydaySpendRate(120, pool);
   const long = await everydaySpendRate(365, pool);
@@ -467,9 +488,6 @@ test('the everyday rate follows the window, and recent is the default', async ()
   const projection = await forecast({ days: 30, client: pool });
   assert.equal(projection.spend_window_days, 120, 'four months is the default, and scripts/backtest.js says why');
   assert.equal(numericToCents(projection.everyday_rate.per_day), 5000);
-  for (const span of [30, 60, 90, 120, 180]) {
-    assert.ok(projection.rate_by_window[span], `the ${span} day rate is reported alongside`);
-  }
 });
 
 test('today is the household day, not the UTC day', () => {
@@ -716,6 +734,12 @@ test('the forecast can use necessities plus a chosen discretionary allowance', a
     days: 30, window: 30, client: pool, discretionaryCentsPerMonth: 30440,
   });
   assert.equal(withAllowance.projected_everyday_rate.per_day_cents, 2500);
+
+  await pool.query(
+    "insert into settings (key, value) values ('forecast_discretionary_monthly', '304.40')",
+  );
+  const householdPlan = await forecast({ days: 30, window: 30, client: pool });
+  assert.equal(householdPlan.projected_everyday_rate.per_day_cents, 2500);
 });
 
 test('a debt repayment remains essential even when its category is unknown', async () => {

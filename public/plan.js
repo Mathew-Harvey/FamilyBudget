@@ -3,10 +3,9 @@
 // The Today page says when the money runs out. This says what would have to go
 // for it not to, which is the question that actually follows.
 //
-// It is built as three steps rather than one number because that is how it gets
-// done: the first is a handful of decisions made once, the second is a change
-// to how you shop, the third is a change to how you live. Each one names the
-// actual things, because "cut 2,000 a month" is not a plan.
+// It is built as cumulative steps rather than one number because that is how it
+// gets done. Each one names the actual things, because "cut 2,000 a month" is
+// not a plan.
 //
 // The rule it holds hardest: when a step is not enough, it says so and says by
 // how much. A page that let someone cancel their subscriptions and believe the
@@ -76,17 +75,17 @@ async function load() {
     steps.innerHTML = '';
     plan.steps.forEach((step, index) => steps.append(stepCard(step, index)));
 
-    // The floor: everything done, and whether that is enough.
+    // The floor: every listed change done, and whether that is enough.
     const floor = document.getElementById('floor');
     floor.innerHTML = '';
     floor.append(el('div', { class: 'card stack' }, [
-      el('h3', { style: 'margin:0', text: 'All three, together' }),
+      el('h3', { style: 'margin:0', text: 'All changes together' }),
       el('div', { style: 'font-size:1.2rem;font-weight:700', class: plan.floor.lasts ? 'good' : 'warn',
         text: plan.floor.lasts
           ? `That balances, on ${money(plan.floor.saves_per_month)} a month of changes.`
           : `Even all of it leaves you ${money(plan.floor.still_short_per_month)} a month short.` }),
       el('p', { class: 'muted', style: 'margin:0', text: plan.floor.lasts
-        ? 'It is enough, and only just: it needs all three steps, not the first one. Stopping the subscriptions on its own moves the date by a month.'
+        ? 'Together, the changes above cover what was short.'
         : 'Cutting cannot close this on its own. The rest has to come from what comes in, from selling something, or from changing what the debts cost each month.' }),
     ]));
 

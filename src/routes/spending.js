@@ -98,7 +98,6 @@ spendingRouter.get('/merchants', async (req, res, next) => {
       `select coalesce(m.display_name, t.merchant_key, 'Not described by the bank') as merchant,
               min(t.merchant_key)                 as merchant_key,
               max(m.what_it_is)                   as what_it_is,
-              bool_or(m.essential)                as essential,
               max(m.lean_tier::text)              as lean_tier,
               max(cat.lean_tier::text)            as category_tier,
               max(m.ended_on)                     as ended_on,
@@ -152,12 +151,12 @@ spendingRouter.get('/merchants/:key/transactions', async (req, res, next) => {
   }
 });
 
-// Naming a merchant, saying what it is, and marking it essential.
+// Naming a merchant, saying what it is, and choosing its forecast tier.
 spendingRouter.post('/merchants/:key', async (req, res, next) => {
   try {
     const {
-      display_name: displayName, what_it_is: whatItIs, essential, category_id: categoryId,
-      lean_tier: leanTier,
+      display_name: displayName, what_it_is: whatItIs,
+      category_id: categoryId, lean_tier: leanTier,
       // Finished with: cancelled, switched away from, or stopped using. The
       // history stays and every total still shows it, it just stops being a
       // guide to next month. Pass false to undo.
@@ -171,17 +170,16 @@ spendingRouter.post('/merchants/:key', async (req, res, next) => {
       `update merchants set
          display_name = coalesce($2, display_name),
          what_it_is   = coalesce($3, what_it_is),
-         essential    = coalesce($4, essential),
-         category_id  = coalesce($5, category_id),
-         ended_on     = case when $6::boolean is null then ended_on
-                             when $6 then coalesce(ended_on, current_date)
+         category_id  = coalesce($4, category_id),
+         ended_on     = case when $5::boolean is null then ended_on
+                             when $5 then coalesce(ended_on, current_date)
                              else null end,
-         lean_tier    = case when $7::boolean then $8::lean_tier else lean_tier end,
+         lean_tier    = case when $6::boolean then $7::lean_tier else lean_tier end,
          source       = 'manual',
          updated_at   = now()
        where match_key = $1
        returning *`,
-      [req.params.key, displayName ?? null, whatItIs ?? null, essential ?? null, categoryId ?? null,
+      [req.params.key, displayName ?? null, whatItIs ?? null, categoryId ?? null,
        ended === undefined ? null : Boolean(ended), hasLeanTier, leanTier ?? null],
     );
     if (!rows.length) return res.status(404).json({ error: 'No such merchant' });

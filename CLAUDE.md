@@ -50,11 +50,13 @@ src/         db.js          one shared pg pool, SSL and type parsers
              categorise.js  rules and the category precedence
              buckets.js     pay periods and bucket maths
              commitments.js finds the outgoings that repeat
+             costs.js       the one shared cost classification model
              forecast.js    the projection and the runway
              alerts.js      what is worth saying, and when
              email.js       sending, with no dependency
              analyst.js     the snapshot, and the Claude API
              behaviour.js   the Today page: position, whether it stuck, trade offs
+             lean.js        the cumulative Lasting scenarios
              auth.js        sessions, the gate, login
              server.js      the Express app
              routes/        one file per area
@@ -82,12 +84,10 @@ observed value, never a half cent average. Rates like "per month" are computed
 in SQL as numeric.
 
 **Recent spending is the guide, not the long average.** The everyday spend rate
-defaults to the last two months (SPEND_WINDOW_DAYS, and a selector on the
-Forecast page). Two months is long enough that one quiet fortnight does not set
-the rate, and short enough to exclude the 2025 renovation. A year of history is full of one offs, an 11,000 dollar car repair, a
-renovation, and of circumstances that have since changed. The forecast reports
-the 30, 60 and 90 day rates side by side so a skew is visible. The analysis
-prompt says the same thing to Claude.
+defaults to the last 120 days (`SPEND_WINDOW_DAYS`). `scripts/backtest.js`
+measured that window against what happened next. A year of history is full of
+one offs, an 11,000 dollar car repair, a
+renovation, and circumstances that have since changed.
 
 **"Today" is the household's day.** src/dates.js derives every date from the
 clock in HOUSEHOLD_TIMEZONE (Australia/Perth), and db.js sets that zone on every
@@ -349,23 +349,23 @@ to Mat or to Skye by name, and the page never implies that cancelling a few
 subscriptions closes a gap it does not close. Read that document before changing
 anything on that page.
 
-**The Forecast page is an explicit scenario, while Today remains current
-reality.** Today includes the whole recent everyday rate because it says where
-the current path leads. Forecast starts with keep and trim costs, replaces cut
-day to day spending with a discretionary allowance, and labels its runway as a
-scenario. Active cut commitments remain included until their individual
-checkbox is turned off, because a subscription still being charged cannot
-quietly disappear. Anything `to_own_debt` stays essential regardless of its
-category.
+**There is one household plan.** Forecast, Today, Lasting, alerts and analysis
+all use the same loaded model: recurring keep and trim costs, the saved
+discretionary allowance, active commitments and configured income. Historical
+cut spending and irregular essentials remain visible as context, but do not
+silently enter the runway. Active cut commitments remain included until a
+scenario explicitly turns them off, because a subscription still being charged
+cannot quietly disappear. Anything `to_own_debt` stays essential regardless of
+its category. `src/costs.js` owns classification, no page reimplements it.
 
-**The plan on /plan must say when cutting is not enough.** `src/lean.js` tiers
-every cost keep, trim or cut, and builds three cumulative steps that each name
-what actually goes. "Lasts" means what comes in covers what goes out, never that
+**The plan on /plan must say when cutting is not enough.** `src/lean.js` builds
+cumulative steps from costs that are present in the household plan, and each
+step names what actually goes. Historical optional spending already outside the
+plan is not offered as a second saving. "Lasts" means what comes in covers what goes out, never that
 the 400 day projection happened to reach its last day above zero: the first
 version reported "never runs out" for a step saving 5,689 against a gap of
 6,883. When a step is short it says so and by how much, and the floor says
-whether all of it together is enough. On this household it is not, by about
-1,400 a month, and a page that implied otherwise would be doing real harm.
+whether all of it together is enough.
 
 **Tier defaults are a starting point, and the merchant beats the category.**
 A category is too blunt to decide with: this household's "Services" holds health

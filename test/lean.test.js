@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
 import { leanPlan, assetLevers } from '../src/lean.js';
 import { forecast } from '../src/forecast.js';
+import { position } from '../src/behaviour.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
 import { daysAgo, today } from '../src/dates.js';
@@ -45,6 +46,15 @@ async function overspendingHousehold(pool) {
   );
   await pool.query("insert into merchants (match_key, display_name, source, lean_tier) values ('A SUBSCRIPTION','A subscription','manual','cut')");
   await pool.query("insert into merchants (match_key, display_name, source, lean_tier) values ('A SHOP','A shop','manual','cut')");
+  await pool.query(
+    "insert into settings (key, value) values ('forecast_discretionary_monthly', '800.00')",
+  );
+  await pool.query(
+    `insert into commitments
+       (match_key, label, typical_amount, cadence_days, next_due, occurrences, regularity, source)
+     values ('A SUBSCRIPTION MONTHLY', 'A subscription', '-100.00', 30,
+             current_date + 20, 4, 1, 'detected')`,
+  );
 
   for (let i = 0; i <= 110; i += 30) {
     await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -200000, description: 'BANK LOAN REPAY', merchantKey: 'BANK LOAN' });
@@ -70,6 +80,23 @@ test('a step that does not close the gap says so, and by how much', async () => 
   if (first.beyond_horizon) {
     assert.ok(numericToCents(first.still_short_per_month) > 0, 'past the horizon is not the same as solved');
   }
+});
+
+test('Today, Forecast and Lasting start from the same household plan', async () => {
+  const pool = await getTestPool();
+  await overspendingHousehold(pool);
+
+  const projection = await forecast({ days: 400, client: pool });
+  const here = await position({ client: pool });
+  const plan = await leanPlan({ client: pool });
+
+  assert.equal(here.runway_date, projection.runway_date);
+  assert.equal(plan.now.runway_date, projection.runway_date);
+  assert.equal(
+    numericToCents(plan.steps[0].saves_per_month),
+    90147,
+    'the step removes the saved allowance and optional commitment, not historical shopping already outside the plan',
+  );
 });
 
 test('a debt repayment is never proposed for cutting', async () => {

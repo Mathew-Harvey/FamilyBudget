@@ -1,9 +1,8 @@
 // Stage 4: the forecast, the runway, and the commitments behind them.
 import { Router } from 'express';
 import { query } from '../db.js';
-import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments } from '../commitments.js';
-import { tieredCosts } from '../lean.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
 export const forecastRouter = Router();
@@ -15,16 +14,19 @@ forecastRouter.get('/', async (req, res, next) => {
     const buffer = (Number(req.query.buffer) || 0).toFixed(2);
     const window = Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 180);
     let discretionaryCents;
-    try {
-      discretionaryCents = numericToCents(String(req.query.discretionary || '0'));
-    } catch {
-      return res.status(400).json({ error: 'Discretionary spending must be a dollar amount with at most two decimal places' });
+    if (req.query.discretionary !== undefined) {
+      try {
+        discretionaryCents = numericToCents(String(req.query.discretionary));
+      } catch {
+        return res.status(400).json({ error: 'Discretionary spending must be a dollar amount with at most two decimal places' });
+      }
     }
-    if (discretionaryCents < 0) {
+    if (discretionaryCents !== undefined && discretionaryCents < 0) {
       return res.status(400).json({ error: 'Discretionary spending cannot be negative' });
     }
 
-    const costs = await tieredCosts({ window });
+    const forecastContext = await buildForecastContext({ window });
+    const costs = forecastContext.costs;
     const optionalCommitments = costs.commitments.filter((row) => row.tier === 'cut');
     const optionalIds = new Set(optionalCommitments.map((row) => String(row.commitment_id)));
     const requestedExclusions = String(req.query.exclude_commitments || '')
@@ -38,12 +40,12 @@ forecastRouter.get('/', async (req, res, next) => {
       days,
       buffer,
       window,
+      forecastContext,
       discretionaryCentsPerMonth: discretionaryCents,
       excludeCommitmentIds: excluded,
     });
-    const historicalDiscretionaryCents = costs.variable
-      .filter((row) => row.tier === 'cut')
-      .reduce((total, row) => total + row.per_month_cents, 0);
+    const historicalDiscretionaryCents =
+      costs.historical_discretionary_per_month_cents;
     const optionalCommitmentCents = optionalCommitments
       .reduce((total, row) => total + row.per_month_cents, 0);
     const includedCommitmentCents = optionalCommitments
@@ -53,7 +55,8 @@ forecastRouter.get('/', async (req, res, next) => {
     res.json({
       ...projection,
       luxury: {
-        allowance_per_month: centsToNumeric(discretionaryCents),
+        allowance_per_month:
+          projection.projected_everyday_rate.discretionary_allowance_per_month,
         historical_variable_per_month: centsToNumeric(historicalDiscretionaryCents),
         optional_commitments_per_month: centsToNumeric(optionalCommitmentCents),
         included_commitments_per_month: centsToNumeric(includedCommitmentCents),
@@ -65,6 +68,30 @@ forecastRouter.get('/', async (req, res, next) => {
         })),
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+forecastRouter.post('/policy', async (req, res, next) => {
+  let cents;
+  try {
+    cents = numericToCents(String(req.body?.discretionary_monthly ?? ''));
+  } catch {
+    return res.status(400).json({ error: 'Discretionary spending must be a dollar amount with at most two decimal places' });
+  }
+  if (cents < 0) {
+    return res.status(400).json({ error: 'Discretionary spending cannot be negative' });
+  }
+  try {
+    const value = centsToNumeric(cents);
+    await query(
+      `insert into settings (key, value)
+       values ('forecast_discretionary_monthly', $1)
+       on conflict (key) do update set value = excluded.value, updated_at = now()`,
+      [value],
+    );
+    res.json({ discretionary_monthly: value });
   } catch (err) {
     next(err);
   }

@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts } from '../behaviour.js';
-import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 
 export const behaviourRouter = Router();
 
@@ -52,17 +52,29 @@ async function changePoint(client = { query }) {
 behaviourRouter.get('/', async (req, res, next) => {
   try {
     const window = windowFrom(req);
-    const here = await position({ window });
-    const since = req.query.since || (await changePoint()).date;
-    const point = req.query.since ? { date: req.query.since, source: 'the date you asked for' } : await changePoint();
+    const forecastContext = await buildForecastContext({ window });
+    const projection = await forecast({ days: 400, window, forecastContext });
+    const here = await position({ window, forecastContext, projection });
+    const point = req.query.since
+      ? { date: req.query.since, source: 'the date you asked for' }
+      : await changePoint();
+    const since = point.date;
+    const [stuck, moved, decisions, debtRows, costs] = await Promise.all([
+      since ? didItStick({ since }) : null,
+      since ? movers({ since }) : null,
+      intentions(),
+      debts(),
+      whatToStop({ window, limit: 40, forecastContext, positionResult: here }),
+    ]);
 
     res.json({
       position: here,
       change_point: point,
-      stuck: since ? await didItStick({ since }) : null,
-      movers: since ? await movers({ since }) : null,
-      intentions: await intentions(),
-      debts: await debts(),
+      stuck,
+      movers: moved,
+      intentions: decisions,
+      debts: debtRows,
+      costs,
     });
   } catch (err) {
     next(err);
@@ -86,14 +98,6 @@ behaviourRouter.post('/change-point', async (req, res, next) => {
       await query(`delete from settings where key = 'behaviour_change_point'`);
     }
     res.json(await changePoint());
-  } catch (err) {
-    next(err);
-  }
-});
-
-behaviourRouter.get('/what-to-stop', async (req, res, next) => {
-  try {
-    res.json(await whatToStop({ window: windowFrom(req), limit: Math.min(Number(req.query.limit) || 20, 50) }));
   } catch (err) {
     next(err);
   }

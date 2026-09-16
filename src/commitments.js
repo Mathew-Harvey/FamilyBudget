@@ -220,12 +220,9 @@ export async function detectCommitments(options = {}) {
   return withTransaction(run, options.pool);
 }
 
-// Every occurrence of the active commitments between two dates, which is what
-// the forecast subtracts.
-export async function upcomingCommitments(from, to, client) {
-  const { rows } = await client.query(
-    'select * from commitments where active order by next_due nulls last, label',
-  );
+// Schedule rows already loaded into the shared cost model. Keeping this part
+// pure lets every scenario reuse one database snapshot.
+export function scheduleCommitments(rows, from, to) {
   const events = [];
   const end = toDate(to);
 
@@ -241,10 +238,19 @@ export async function upcomingCommitments(from, to, client) {
         date: iso(due),
         label: commitment.label,
         amount: commitment.typical_amount,
-        commitment_id: commitment.id,
+        commitment_id: commitment.id ?? commitment.commitment_id,
       });
       due = new Date(due.getTime() + commitment.cadence_days * DAY_MS);
     }
   }
   return events.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Every occurrence of the active commitments between two dates, which is what
+// callers without a cost model subtract.
+export async function upcomingCommitments(from, to, client) {
+  const { rows } = await client.query(
+    'select * from commitments where active order by next_due nulls last, label',
+  );
+  return scheduleCommitments(rows, from, to);
 }

@@ -69,10 +69,11 @@ export async function evaluateAlerts(options = {}) {
       subject: `Cash runs low in ${projection.runway_days} days`,
       body: [
         `Spendable cash today is ${money(projection.opening_balance)}.`,
-        `At the current rate it reaches zero on ${projection.runway_date}, in ${projection.runway_days} days.`,
+        `Using the household plan it reaches zero on ${projection.runway_date}, in ${projection.runway_days} days.`,
         '',
         `Income expected: ${money(projection.expected_income.amount)} each ${projection.cycle?.cadence ?? 'period'}.`,
-        `Everyday spending: ${money(projection.everyday_rate.per_day)} a day.`,
+        `Recurring essentials: ${money(projection.projected_everyday_rate.essential_per_day)} a day.`,
+        `Discretionary allowance: ${money(projection.projected_everyday_rate.discretionary_allowance_per_month)} a month.`,
         `Committed outgoings over the last ${projection.everyday_rate.days} days: ${money(projection.everyday_rate.committed)}.`,
         '',
         `Lowest point in the next 180 days: ${money(projection.lowest_balance)} on ${projection.lowest_date}.`,

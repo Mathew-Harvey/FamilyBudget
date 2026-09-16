@@ -9,7 +9,7 @@
 //
 // Every check either passes or prints what is wrong and by how much.
 import { query, closePool } from '../src/db.js';
-import { everydaySpendRate } from '../src/forecast.js';
+import { buildForecastContext } from '../src/forecast.js';
 import { matchKeyFor } from '../src/commitments.js';
 import { position } from '../src/behaviour.js';
 import { readFile } from 'node:fs/promises';
@@ -184,8 +184,10 @@ check('the Spending page and the forecast use the same window',
 // 8. The headline reconciles with what actually left the account, and any
 //    difference is named rather than shrugged at.
 console.log('\nThe headline against what actually left');
-const here = await position();
-const rate = await everydaySpendRate(WINDOW);
+const forecastContext = await buildForecastContext({ window: WINDOW });
+const here = await position({ window: WINDOW, forecastContext });
+const { costs } = forecastContext;
+const rate = costs.rate;
 const { rows: [flow] } = await query(`
   select round(sum(-amount) * 30.44 / $1, 2) as all_out,
          round(sum(-amount) filter (where not one_off and not no_longer_expected) * 30.44 / $1, 2) as in_rate
@@ -193,7 +195,7 @@ const { rows: [flow] } = await query(`
 
 console.log(`        ${money(flow.all_out).padStart(14)}  a month left a spendable account`);
 console.log(`        ${money(flow.in_rate).padStart(14)}  a month after one offs and finished merchants come out`);
-console.log(`        ${money(here.out_per_month).padStart(14)}  a month is what the page says`);
+console.log(`        ${money(here.out_per_month).padStart(14)}  a month is in the household plan`);
 
 // The difference is projected commitments against how they actually fell. Named
 // per commitment, because an unexplained gap here is the one that matters.
@@ -206,24 +208,33 @@ for (const row of txns) {
   const key = matchKeyFor(row.label);
   actual.set(key, (actual.get(key) ?? 0) + Number(row.amt));
 }
-const { rows: commitments } = await query(
-  'select match_key, label, round(-typical_amount * 30.44 / cadence_days, 2) as pm from commitments where active',
-);
-const drift = commitments
+const drift = costs.commitments
   .map((row) => ({
     label: row.label.slice(0, 34),
-    over: Number(row.pm) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW,
+    over: Number(row.per_month) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW,
   }))
   .filter((row) => Math.abs(row.over) > 20)
   .sort((a, b) => b.over - a.over);
-const driftTotal = commitments.reduce(
-  (sum, row) => sum + Number(row.pm) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW, 0);
+const driftTotal = costs.commitments.reduce(
+  (sum, row) => sum + Number(row.per_month) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW, 0);
 
-console.log('\n        the difference, commitment by commitment:');
+const historicalDiscretionary = costs.historical_discretionary_per_month_cents / 100;
+const irregularEssential = (Number(rate.irregular_essential) * 30.44) / rate.effective_days;
+const allowance = costs.discretionary_allowance_cents / 100;
+const explainedPlan = Number(flow.in_rate)
+  - historicalDiscretionary
+  - irregularEssential
+  + allowance
+  + driftTotal;
+
+console.log(`        ${money(-historicalDiscretionary).padStart(14)}  optional history replaced by the allowance`);
+console.log(`        ${money(-irregularEssential).padStart(14)}  irregular essentials not turned into a rate`);
+console.log(`        ${money(allowance).padStart(14)}  discretionary allowance added`);
+console.log('\n        commitment timing and amount differences:');
 for (const row of drift) console.log(`        ${money(row.over).padStart(14)}  ${row.label}`);
-check('the difference is fully accounted for by named commitments',
-  Math.abs(driftTotal - (Number(here.out_per_month) - Number(flow.in_rate))) < 5,
-  `${money(driftTotal)} explained against ${money(Number(here.out_per_month) - Number(flow.in_rate))} total`);
+check('the household plan is fully accounted for by named choices',
+  Math.abs(explainedPlan - Number(here.out_per_month)) < 5,
+  `${money(explainedPlan)} explained against ${money(here.out_per_month)} shown`);
 
 // 9. Spending nobody has explained. Not a failure, but worth knowing.
 console.log('\nStill unexplained');

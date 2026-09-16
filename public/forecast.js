@@ -122,16 +122,17 @@ async function load() {
   try {
     const days = document.getElementById('days').value;
     const buffer = document.getElementById('buffer').value || 0;
-    const window = document.getElementById('window').value || 120;
-    const useDiscretionary = document.getElementById('includeDiscretionary').checked;
-    const discretionary = useDiscretionary
-      ? document.getElementById('discretionaryAmount').value || 0
-      : 0;
-    const params = new URLSearchParams({ days, buffer, window, discretionary });
+    const params = new URLSearchParams({ days, buffer });
     if (excludedLuxuryCommitments.size) {
       params.set('exclude_commitments', [...excludedLuxuryCommitments].join(','));
     }
     const data = await api(`/api/forecast?${params}`);
+    const allowance = data.luxury.allowance_per_month;
+    const allowanceInput = document.getElementById('discretionaryAmount');
+    const allowanceEnabled = Number(allowance) > 0;
+    document.getElementById('includeDiscretionary').checked = allowanceEnabled;
+    allowanceInput.disabled = !allowanceEnabled;
+    if (document.activeElement !== allowanceInput) allowanceInput.value = allowance;
     renderLuxury(data.luxury);
 
     const summary = document.getElementById('summary');
@@ -143,7 +144,10 @@ async function load() {
           el('div', { class: 'amount in', style: 'font-size:1.4rem', text: formatAmount(data.opening_balance) }),
         ]),
         el('div', { style: 'text-align:right' }, [
-          el('div', { class: 'muted', text: 'Scenario runway' }),
+          el('div', {
+            class: 'muted',
+            text: excludedLuxuryCommitments.size ? 'Scenario runway' : 'Household runway',
+          }),
           el('div', {
             class: `amount ${data.runway_date ? 'out' : 'in'}`,
             style: 'font-size:1.4rem',
@@ -163,7 +167,7 @@ async function load() {
     );
     summary.append(el('div', {
       class: 'muted',
-      text: `Recent optional day-to-day spending averaged ${formatAmount(data.luxury.historical_variable_per_month)} a month. This scenario replaces that with the allowance above.`,
+      text: `Recent optional day-to-day spending averaged ${formatAmount(data.luxury.historical_variable_per_month)} a month. The household plan replaces that history with the allowance above.`,
     }));
     if (Number(data.everyday_rate.irregular_essential) > 0) {
       summary.append(el('div', {
@@ -171,12 +175,6 @@ async function load() {
         text: `${formatAmount(data.everyday_rate.irregular_essential)} of essential spending occurred at places seen on fewer than three dates, so it is not presented as a regular rate.`,
       }));
     }
-    // The same essential rate over the other windows, so it is obvious when
-    // irregular spending is skewing the baseline.
-    const spread = Object.entries(data.rate_by_window || {})
-      .map(([span, rate]) => `${span}d ${formatAmount(rate.recurring_essential_per_day)}`)
-      .join(', ');
-    if (spread) summary.append(el('div', { class: 'muted', text: `Recurring essentials per day by window: ${spread}.` }));
     summary.append(
       el('div', { class: 'muted', text: `Lowest point ${formatAmount(data.lowest_balance)} on ${data.lowest_date}.` }),
     );
@@ -225,12 +223,36 @@ async function load() {
 
 document.getElementById('days').addEventListener('change', load);
 document.getElementById('buffer').addEventListener('change', load);
-document.getElementById('window').addEventListener('change', load);
-document.getElementById('includeDiscretionary').addEventListener('change', (event) => {
-  document.getElementById('discretionaryAmount').disabled = !event.target.checked;
-  load();
+document.getElementById('includeDiscretionary').addEventListener('change', async (event) => {
+  const input = document.getElementById('discretionaryAmount');
+  input.disabled = !event.target.checked;
+  if (!event.target.checked) {
+    try {
+      await api('/api/forecast/policy', {
+        method: 'POST',
+        body: { discretionary_monthly: '0.00' },
+      });
+      await load();
+      showError('');
+    } catch (err) {
+      showError(err.message);
+    }
+  } else {
+    input.focus();
+  }
 });
-document.getElementById('discretionaryAmount').addEventListener('change', load);
+document.getElementById('discretionaryAmount').addEventListener('change', async (event) => {
+  try {
+    await api('/api/forecast/policy', {
+      method: 'POST',
+      body: { discretionary_monthly: event.target.value || '0.00' },
+    });
+    await load();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+  }
+});
 document.getElementById('redetect').addEventListener('click', async () => {
   document.getElementById('detectState').textContent = 'Looking...';
   try {

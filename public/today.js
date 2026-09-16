@@ -51,7 +51,7 @@ function headline(position) {
     // The biggest thing on the page, and it is a date. Everything else is
     // context for this.
     el('div', { style: 'font-size:2.6rem;font-weight:700;line-height:1.1', text: position.runway_date_friendly ?? 'no date in range' }),
-    el('div', { class: 'muted', text: `${position.runway_days} days from today, at the current rate` }),
+    el('div', { class: 'muted', text: `${position.runway_days} days from today, using the household plan` }),
     // The way out, offered where the bad news is. A date with no next step is
     // just something to feel bad about.
     el('a', { href: '/plan', text: 'What it would take to last', style: 'align-self:flex-start' }),
@@ -79,7 +79,8 @@ function headline(position) {
     ]),
     el('p', { class: 'muted', style: 'margin-bottom:0' , text:
       `That is ${money(String(position.daily_gap_cents / 100))} a day more going out than coming in. `
-      + `Worked out from the last ${position.window_days} days of spending, one off purchases left out.` }),
+      + `The plan includes ${money(position.recurring_essential_per_month)} a month of recurring essentials, `
+      + `${money(position.discretionary_per_month)} discretionary, and active commitments.` }),
   );
 
   for (const warning of position.warnings ?? []) {
@@ -439,11 +440,9 @@ async function load() {
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
     debtsSection(data.debts);
-    // The costs double as the list of things a decision can watch, so they are
-    // fetched before the decisions box is drawn.
-    const costs = await api('/api/today/what-to-stop?limit=40');
-    decisions(data.intentions, costs.items.filter((item) => !item.fixed));
-    await whatToStop(costs);
+    // The costs share the same loaded forecast model as the headline.
+    decisions(data.intentions, data.costs.items.filter((item) => !item.fixed));
+    await whatToStop(data.costs);
     showError('');
   } catch (err) {
     showError(err.message);

@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { leanPlan, assetLevers, trimPercent } from '../lean.js';
-import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 
 export const leanRouter = Router();
 
@@ -12,10 +12,12 @@ const windowFrom = (req) =>
 leanRouter.get('/', async (req, res, next) => {
   try {
     const window = windowFrom(req);
-    res.json({
-      plan: await leanPlan({ window }),
-      levers: await assetLevers({ window }),
-    });
+    const forecastContext = await buildForecastContext({ window });
+    const [plan, levers] = await Promise.all([
+      leanPlan({ window, forecastContext }),
+      assetLevers({ window, forecastContext }),
+    ]);
+    res.json({ plan, levers });
   } catch (err) {
     next(err);
   }

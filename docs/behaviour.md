@@ -170,6 +170,12 @@ much on its own".
 
 ## The order of the page
 
+Today, Forecast, Lasting, alerts and analysis all use the same household plan.
+That plan is recurring essentials, the saved discretionary allowance, active
+commitments and configured income. Historical optional spending remains useful
+evidence on the Spending and Forecast pages, but it is not a second hidden
+forecast input.
+
 Ordering is a behavioural decision too. The Today page is arranged so that
 closing it after the first screen still leaves you with the thing that matters:
 

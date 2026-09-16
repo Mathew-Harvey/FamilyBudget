@@ -29,6 +29,20 @@ async function addTxn(pool, accountId, { date, cents, description = 'TEST', cate
   return rows[0].id;
 }
 
+async function classifyTestSpendingAsEssential(pool) {
+  const { rows: [category] } = await pool.query(
+    `insert into categories (name, kind, lean_tier)
+     values ('Test essentials', 'expense', 'trim')
+     returning id`,
+  );
+  await pool.query(
+    `update transactions
+        set category_id = $1, merchant_key = coalesce(merchant_key, 'TEST ESSENTIAL')
+      where amount < 0 and category_id is null`,
+    [category.id],
+  );
+}
+
 test('a date is rendered as something a person can picture', () => {
   // This year needs no year on it, and a runway date reads better without one.
   assert.equal(friendlyDate('2026-11-23', '2026-09-16'), '23 November');
@@ -167,6 +181,7 @@ test('ticking something off moves the date, and the move is real', async () => {
   for (let i = 0; i <= 120; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
   }
+  await classifyTestSpendingAsEssential(pool);
 
   const base = await position({ client: pool });
   assert.ok(base.going_backwards, 'nothing coming in means going backwards');

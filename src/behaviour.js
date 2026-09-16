@@ -21,7 +21,7 @@
 // one of them needs a number bent to work, it goes, because the whole value of
 // this thing is that the figures can be trusted.
 import { query } from './db.js';
-import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
+import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { matchKeyFor } from './commitments.js';
 import { numericToCents, centsToNumeric } from './money.js';
 import { today as householdToday } from './dates.js';
@@ -90,47 +90,39 @@ export function priceIn({ monthlyCents, dailyGapCents, balanceCents }) {
 
 // The blunt position. Three numbers and a date, and nothing else, because a
 // dashboard of twenty numbers is a dashboard nobody reads.
-export async function position({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
-  const projection = await forecast({ days: 400, window, client });
-  const rate = projection.everyday_rate;
+export async function position({
+  client = { query },
+  window = DEFAULT_SPEND_WINDOW_DAYS,
+  forecastContext = null,
+  projection = null,
+} = {}) {
+  const context = forecastContext ?? await buildForecastContext({
+    window,
+    client,
+  });
+  const costs = context.costs;
+  const view = projection ?? await forecast({
+    days: 400,
+    window,
+    client,
+    forecastContext: context,
+  });
+  const rate = view.everyday_rate;
 
-  const { rows: [committed] } = await client.query(
-    // Rounded in SQL: money.js refuses anything that is not exact to the cent,
-    // and a rate worked out from a cadence is not.
-    `select round(coalesce(sum(-typical_amount * 30.44 / nullif(cadence_days, 0)), 0), 2) as per_month
-       from commitments where active`,
+  const everydayMonthly = Math.round(
+    (view.projected_everyday_rate.per_day_cents * 3044) / 100,
   );
-
-  // Living, and paying down what we owe. Both leave the account, so the runway
-  // is the same either way, but they are not the same kind of thing: one is
-  // consumed and one buys down a liability. Reporting a single "going out"
-  // figure is true and useless, because a third of it is not a monthly choice
-  // and none of it can be trimmed the way the rest can.
-  // Measured as a share of what went out rather than as its own total, then
-  // applied to the figure the runway is actually built from. Two independent
-  // measurements of the same quantity disagree by a fraction of a percent and
-  // then visibly fail to add up on the page, which reads as a bug and costs
-  // more than the precision is worth. One total, split proportionally.
-  const { rows: [share] } = await client.query(
-    `select coalesce(sum(-amount) filter (where to_own_debt), 0) as debt,
-            coalesce(sum(-amount), 0) as total
-       from budget_flows
-      where counts and amount < 0 and not one_off and not no_longer_expected
-        and txn_date > current_date - $1::integer and txn_date <= current_date`,
-    [rate.effective_days],
-  );
-
-  const everydayMonthly = Math.round((toCents(rate.everyday) * MONTH_DAYS) / rate.effective_days);
-  const committedMonthly = toCents(committed.per_month);
+  const committedMonthly = costs.commitments
+    .reduce((total, row) => total + row.per_month_cents, 0);
   const outMonthly = everydayMonthly + committedMonthly;
 
   // Income the same way the projection sees it, so the gap on this page and
   // the curve on the forecast page cannot disagree.
-  const cycleMonthly = projection.cycle
-    ? Math.round((toCents(projection.expected_income.amount) * MONTH_DAYS) /
-        (projection.cycle.cadence === 'monthly' ? MONTH_DAYS : projection.cycle.cadence === 'fortnightly' ? 14 : 7))
+  const cycleMonthly = view.cycle
+    ? Math.round((toCents(view.expected_income.amount) * MONTH_DAYS) /
+        (view.cycle.cadence === 'monthly' ? MONTH_DAYS : view.cycle.cadence === 'fortnightly' ? 14 : 7))
     : 0;
-  const streamsMonthly = (projection.expected_income_streams ?? [])
+  const streamsMonthly = (view.expected_income_streams ?? [])
     // A stream with an end date is temporary, including a one-time partial
     // first pay. It belongs on the cash curve, not in the ongoing monthly
     // income figure used to decide whether the household is going backwards.
@@ -138,21 +130,30 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
     .reduce((total, stream) => total + Math.round((toCents(stream.amount) * MONTH_DAYS) / Number(stream.cadence_days || 30)), 0);
   const inMonthly = cycleMonthly + streamsMonthly;
 
-  const totalCents = toCents(share.total);
-  const debtMonthly = totalCents > 0
-    ? Math.round((outMonthly * toCents(share.debt)) / totalCents)
-    : 0;
+  const debtMonthly = Math.min(
+    costs.commitments
+      .filter((row) => row.is_debt)
+      .reduce((total, row) => total + row.per_month_cents, 0)
+      + costs.variable
+        .filter((row) => row.is_debt && row.recurring)
+        .reduce((total, row) => total + row.per_month_cents, 0),
+    outMonthly,
+  );
 
   const gapMonthly = outMonthly - inMonthly;
   const dailyGapCents = Math.max(Math.round(gapMonthly / MONTH_DAYS), 0);
 
   return {
     as_of: householdToday(),
-    spendable: projection.opening_balance,
-    spendable_cents: toCents(projection.opening_balance),
+    spendable: view.opening_balance,
+    spendable_cents: toCents(view.opening_balance),
     in_per_month: fromCents(inMonthly),
     out_per_month: fromCents(outMonthly),
     everyday_per_month: fromCents(everydayMonthly),
+    recurring_essential_per_month: fromCents(
+      Math.round((rate.recurring_essential_per_day_cents * 3044) / 100),
+    ),
+    discretionary_per_month: fromCents(costs.discretionary_allowance_cents),
     committed_per_month: fromCents(committedMonthly),
     living_per_month: fromCents(outMonthly - debtMonthly),
     debt_per_month: fromCents(debtMonthly),
@@ -161,12 +162,12 @@ export async function position({ client = { query }, window = DEFAULT_SPEND_WIND
     gap_per_month: fromCents(gapMonthly),
     going_backwards: gapMonthly > 0,
     daily_gap_cents: dailyGapCents,
-    runway_date: projection.runway_date,
-    runway_date_friendly: friendlyDate(projection.runway_date),
-    runway_days: projection.runway_days,
+    runway_date: view.runway_date,
+    runway_date_friendly: friendlyDate(view.runway_date),
+    runway_days: view.runway_days,
     window_days: window,
     effective_days: rate.effective_days,
-    warnings: projection.warnings,
+    warnings: view.warnings,
   };
 }
 
@@ -348,12 +349,23 @@ export async function movers({ since, before = 180, client = { query }, limit = 
 // $90 a month is worth. "23 November becomes 7 December" is the same fact in
 // the unit that is currently scarce, and it is the unit the household is
 // already worried about.
-export async function tradeOff({ monthlyCents = 0, commitmentIds = [], window = DEFAULT_SPEND_WINDOW_DAYS, client = { query } } = {}) {
-  const base = await forecast({ days: 400, window, client });
+export async function tradeOff({
+  monthlyCents = 0,
+  commitmentIds = [],
+  window = DEFAULT_SPEND_WINDOW_DAYS,
+  client = { query },
+  forecastContext = null,
+} = {}) {
+  const context = forecastContext ?? await buildForecastContext({
+    window,
+    client,
+  });
+  const base = await forecast({ days: 400, window, client, forecastContext: context });
   const adjusted = await forecast({
     days: 400,
     window,
     client,
+    forecastContext: context,
     spendAdjustmentCentsPerDay: Math.round(monthlyCents / MONTH_DAYS),
     excludeCommitmentIds: commitmentIds,
   });
@@ -379,85 +391,44 @@ export async function tradeOff({ monthlyCents = 0, commitmentIds = [], window = 
 // Ranked by annual cost, because that is the number that makes a small monthly
 // charge look like what it is. Only recurring things: telling someone to spend
 // less at the supermarket is not an action, it is a mood.
-export async function whatToStop({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS, limit = 15 } = {}) {
-  const here = await position({ client, window });
-
-  const { rows } = await client.query(
-    `select c.id, c.match_key, c.label, c.typical_amount, c.cadence_days, c.annual,
-            cat.name as category,
-            coalesce(grp.name, cat.name) as group_name
-       from commitments c
-       left join categories cat on cat.id = c.category_id
-       left join categories grp on grp.id = cat.parent_id
-      where c.active and c.cadence_days > 0
-      order by -c.typical_amount * 30.44 / c.cadence_days desc
-      limit $1`,
-    [limit],
-  );
-
-  // Which of these are debt repayments rather than subscriptions.
-  //
-  // Worked out here rather than joined in SQL, because commitments.match_key
-  // and transactions.merchant_key are two different normalisations of the same
-  // description: matchKeyFor keeps three words and drops purely numeric ones,
-  // merchantKeyFor strips processor prefixes and keeps four. Joining one to the
-  // other matches almost nothing, which is exactly the drift CLAUDE.md warns
-  // about, and the symptom was a "what to stop" list headed by the mortgage.
-  // One definition, applied in JavaScript.
-  // to_own_debt is the column built for exactly this question, and it already
-  // covers the three ways a debt payment is recognised. The earlier version
-  // asked "is it a transfer", which misses every hand entered debt: the credit
-  // card payments have no counterpart row to pair with, so servicing Skye's
-  // card was offered as something to cancel.
-  const { rows: transferLabels } = await client.query(
-    `select distinct coalesce(display_description, description) as label
-       from budget_flows
-      where counts and amount < 0 and to_own_debt`,
-  );
-  const debtKeys = new Set(transferLabels.map((row) => matchKeyFor(row.label)));
-
-  // What a merchant is called, and whether it was marked essential, joined on
-  // the commitment key rather than the merchant key. Those are two different
-  // normalisations of the same description and joining them in SQL matched 13
-  // of 33 commitments, so most rows silently lost their name and their
-  // essential flag. Resolved here through the one definition instead.
-  const { rows: merchantRows } = await client.query(
-    `select m.match_key, m.display_name, m.what_it_is, m.essential,
-            (select coalesce(t.display_description, t.description)
-               from budget_flows t where t.merchant_key = m.match_key limit 1) as sample_label
-       from merchants m`,
-  );
-  const byCommitmentKey = new Map();
-  for (const row of merchantRows) {
-    if (!row.sample_label) continue;
-    const key = matchKeyFor(row.sample_label);
-    if (key && !byCommitmentKey.has(key)) byCommitmentKey.set(key, row);
-  }
+export async function whatToStop({
+  client = { query },
+  window = DEFAULT_SPEND_WINDOW_DAYS,
+  limit = 15,
+  forecastContext = null,
+  positionResult = null,
+} = {}) {
+  const context = forecastContext ?? await buildForecastContext({
+    window,
+    client,
+  });
+  const costs = context.costs;
+  const here = positionResult ?? await position({
+    client, window, forecastContext: context,
+  });
 
   return {
     daily_gap_cents: here.daily_gap_cents,
     spendable_cents: here.spendable_cents,
     runway_date: here.runway_date,
     runway_date_friendly: here.runway_date_friendly,
-    items: rows.map((row) => {
-      const monthlyCents = Math.round((-toCents(row.typical_amount) * MONTH_DAYS) / Number(row.cadence_days));
-      const merchant = byCommitmentKey.get(row.match_key);
+    items: costs.commitments.slice(0, limit).map((row) => {
+      const monthlyCents = row.per_month_cents;
       return {
-        commitment_id: row.id,
+        commitment_id: row.commitment_id,
         // The key a decision watches to check itself later.
         merchant_key: row.match_key,
-        // The name someone gave it beats what the bank wrote, every time.
-        label: merchant?.display_name ?? row.label,
+        label: row.name,
         raw_label: row.label,
-        what_it_is: merchant?.what_it_is ?? null,
-        essential: merchant?.essential ?? false,
+        what_it_is: row.what_it_is,
+        essential: row.tier !== 'cut',
         // Fixed means it cannot simply be cancelled this month. It still shows,
         // because knowing the mortgage is 47,000 a year is worth knowing, but
         // it is listed apart from the things that are a choice.
-        fixed: debtKeys.has(row.match_key) || Boolean(merchant?.essential),
+        fixed: row.tier !== 'cut',
         annual: row.annual,
         category: row.category,
-        group: row.group_name,
+        group: row.group,
         cadence_days: row.cadence_days,
         ...priceIn({
           monthlyCents,

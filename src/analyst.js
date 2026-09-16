@@ -268,7 +268,11 @@ export async function buildSnapshot(client = { query }) {
     rates: {
       expected_income_per_period: projection.expected_income.amount,
       expected_income_source: projection.expected_income.source,
-      everyday_spend_per_day: projection.everyday_rate.per_day,
+      planned_everyday_spend_per_day: projection.projected_everyday_rate.per_day,
+      recurring_essentials_per_day: projection.projected_everyday_rate.essential_per_day,
+      discretionary_allowance_per_month:
+        projection.projected_everyday_rate.discretionary_allowance_per_month,
+      historical_everyday_spend_per_day: projection.everyday_rate.per_day,
       // Named from the window that produced them. These said "last_90_days"
       // while carrying whatever SPEND_WINDOW_DAYS was set to, which is 120, so
       // Claude was told to read a third more spending into every month than had
@@ -706,10 +710,14 @@ const MERCHANT_SCHEMA = {
           display_name: { type: 'string', description: 'What a person would call this place.' },
           what_it_is: { type: 'string', description: 'One short line: what it is and what the money buys.' },
           suggested_category: { type: ['string', 'null'], description: 'The best fit from the category list given, or null if none fits.' },
-          essential: { type: 'boolean', description: 'True for things like power, water, insurance, medical, loan repayments.' },
+          forecast_tier: {
+            type: 'string',
+            enum: ['keep', 'trim', 'cut'],
+            description: 'Keep for fixed essentials, trim for flexible essentials, cut for optional spending.',
+          },
           confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
         },
-        required: ['match_key', 'display_name', 'what_it_is', 'suggested_category', 'essential', 'confidence'],
+        required: ['match_key', 'display_name', 'what_it_is', 'suggested_category', 'forecast_tier', 'confidence'],
         additionalProperties: false,
       },
     },
@@ -788,7 +796,7 @@ export async function identifyMerchants({ window = 60, client = { query }, messa
          display_name = case when source = 'auto' then coalesce($2, display_name) else display_name end,
          what_it_is   = coalesce($3, what_it_is),
          category_id  = coalesce(category_id, $4),
-         essential    = coalesce(essential, $5),
+         lean_tier    = coalesce(lean_tier, $5::lean_tier),
          source       = case when source = 'auto' then 'claude' else source end,
          updated_at   = now()
        where match_key = $1 and source <> 'manual'`,
@@ -797,7 +805,7 @@ export async function identifyMerchants({ window = 60, client = { query }, messa
         entry.display_name || null,
         entry.what_it_is || null,
         entry.suggested_category ? byName.get(entry.suggested_category) ?? null : null,
-        typeof entry.essential === 'boolean' ? entry.essential : null,
+        ['keep', 'trim', 'cut'].includes(entry.forecast_tier) ? entry.forecast_tier : null,
       ],
     );
     identified += rowCount;
