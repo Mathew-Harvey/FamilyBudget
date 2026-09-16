@@ -207,3 +207,102 @@ spendingRouter.get('/unexplained', async (req, res, next) => {
     next(err);
   }
 });
+
+// Purchases that look like they happened once rather than repeatedly.
+//
+// The point of marking these is that a rate should describe normal life. The
+// 2025 renovation put tens of thousands through the account, and while it was
+// still inside the window every forecast built on it was wrong. Hiding it
+// behind a short window worked only until the next large purchase, and threw
+// away the older history that makes a rate stable in the first place.
+//
+// A candidate is large, and comes from somewhere we have paid rarely. That is a
+// suggestion, not a decision: a person confirms it, because only a person knows
+// whether the new dishwasher replaces one that will last ten years or is the
+// first of six trips to Bunnings.
+spendingRouter.get('/one-off-candidates', async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.window) || 400, 30), 800);
+    const { rows } = await query(
+      `with seen as (
+         select merchant_key, count(*)::int as times
+           from budget_flows
+          where counts and amount < 0 and txn_date > current_date - $1::integer
+          group by merchant_key
+       )
+       select t.id, t.txn_date, -t.amount as amount, t.one_off,
+              coalesce(m.display_name, t.merchant_key, 'Not described by the bank') as place,
+              coalesce(s.times, 1) as times_paid,
+              cat.name as category
+         from budget_flows t
+         left join merchants m on m.match_key = t.merchant_key
+         left join seen s on s.merchant_key = t.merchant_key
+         left join categories cat on cat.id = t.category_id
+        where t.counts and t.amount < 0
+          and t.txn_date > current_date - $1::integer
+          and -t.amount >= 400
+          and coalesce(s.times, 1) <= 4
+        order by -t.amount desc
+        limit 60`,
+      [days],
+    );
+    res.json({ window_days: days, candidates: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// An annual bill is not a one off, it is a commitment with a long cadence.
+// Commitment detection ignores anything spaced more than 200 days apart,
+// because two petrol fills four months apart are not a quarterly bill, so rates,
+// rego, insurance and health cover never reached the forecast at all. They are
+// real and predictable, so they are confirmed by hand and marked annual, which
+// keeps detection from standing them down for having gone quiet.
+spendingRouter.post('/annual', async (req, res, next) => {
+  try {
+    const { merchant_key: merchantKey, label, amount, next_due: nextDue, cadence_days: cadence = 365 } = req.body ?? {};
+    if (!merchantKey && !label) return res.status(400).json({ error: 'A merchant or a label is required' });
+    if (!Number(amount)) return res.status(400).json({ error: 'A typical amount is required' });
+    if (!nextDue) return res.status(400).json({ error: 'A date it is next due is required' });
+
+    const { rows } = await query(
+      `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
+                                occurrences, regularity, annual, source, active)
+       values ($1, $2, $3, $4, $5, 1, 1, true, 'manual', true)
+       on conflict (match_key) do update set
+         label = excluded.label, typical_amount = excluded.typical_amount,
+         cadence_days = excluded.cadence_days, next_due = excluded.next_due,
+         annual = true, source = 'manual', active = true, updated_at = now()
+       returning *`,
+      [merchantKey ?? label, label ?? merchantKey, amount, Number(cadence) || 365, nextDue],
+    );
+    res.json({ commitment: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Marking, one transaction or a whole merchant at a time. A one off stays in
+// every total and on every page: it really happened. It is left out only where
+// a rate is worked out, which is the forecast and the trim suggestions.
+spendingRouter.post('/one-off', async (req, res, next) => {
+  try {
+    const { ids, merchant_key: merchantKey, one_off: oneOff = true } = req.body ?? {};
+    if (!Array.isArray(ids) && !merchantKey) {
+      return res.status(400).json({ error: 'Give either a list of transaction ids or a merchant key' });
+    }
+    const { rowCount } = merchantKey
+      ? await query(
+          `update transactions set one_off = $2, updated_at = now()
+            where merchant_key = $1 and amount < 0`,
+          [merchantKey, Boolean(oneOff)],
+        )
+      : await query(
+          `update transactions set one_off = $2, updated_at = now() where id = any($1::uuid[])`,
+          [ids, Boolean(oneOff)],
+        );
+    res.json({ updated: rowCount });
+  } catch (err) {
+    next(err);
+  }
+});

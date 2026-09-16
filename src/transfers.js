@@ -273,3 +273,67 @@ export async function listCandidates(options = {}) {
   }
   return out;
 }
+
+// Money moved between two accounts we own, proved from the description rather
+// than from a matching counterpart row.
+//
+// Pairing needs both sides present. That fails often enough to matter: the
+// other side may not have synced yet, or the destination may not be connected
+// to Redbark at all. When it fails, budget_flows sees an ordinary payment
+// leaving a spendable account and counts it as spending, which it is not. On
+// this household that was about 710 dollars a month of money that had simply
+// moved to the next account along.
+//
+// ING writes the destination account number into the description, so the
+// destination can be read directly. Only a number belonging to an account we
+// own is accepted, and the row's own account is excluded: a description
+// quoting the account it is already on tells us nothing about where it went.
+// Everything else is left alone and still counts, which is the safe direction
+// to be wrong in.
+export function internalDestinationFor(description, accounts, sourceAccountId) {
+  const digits = String(description || '').replace(/\D/g, '');
+  if (digits.length < 4) return null;
+
+  for (const account of accounts) {
+    if (account.id === sourceAccountId) continue;
+    const four = lastFour(account.masked_number);
+    if (four && digits.includes(four)) return account.id;
+  }
+  return null;
+}
+
+// Only descriptions that say they are a transfer are considered. A merchant
+// whose name happens to contain four digits matching an account is not one.
+const INTERNAL_WORDS = /INTERNAL TRANSFER|TRANSFER TO LINKED|TRANSFER FROM LINKED/i;
+
+export async function resolveInternalDestinations(options = {}) {
+  const run = async (client) => {
+    const { rows: accounts } = await client.query(
+      'select id, masked_number from accounts where masked_number is not null',
+    );
+    if (!accounts.length) return 0;
+
+    const { rows } = await client.query(
+      `select id, account_id, description from transactions
+        where internal_to_account_id is null
+          and transfer_pair_id is null
+          and description ~* 'INTERNAL TRANSFER|TRANSFER TO LINKED|TRANSFER FROM LINKED'`,
+    );
+
+    let resolved = 0;
+    for (const row of rows) {
+      if (!INTERNAL_WORDS.test(row.description || '')) continue;
+      const destination = internalDestinationFor(row.description, accounts, row.account_id);
+      if (!destination) continue;
+      await client.query('update transactions set internal_to_account_id = $2, updated_at = now() where id = $1', [
+        row.id,
+        destination,
+      ]);
+      resolved++;
+    }
+    return resolved;
+  };
+
+  if (options.client) return run(options.client);
+  return withTransaction(run, options.pool);
+}

@@ -8,7 +8,7 @@ import { getPool, withTransaction, closePool } from './db.js';
 import { createClient } from './redbark.js';
 import { centsToNumeric, numericToCents, redbarkAmountToCents } from './money.js';
 import { descriptionSimilarity, daysBetween, toDateOnly } from './matching.js';
-import { detectTransfers } from './transfers.js';
+import { detectTransfers, resolveInternalDestinations } from './transfers.js';
 import { categoriseAll } from './categorise.js';
 import { detectCommitments } from './commitments.js';
 import { today, daysAgo } from './dates.js';
@@ -433,6 +433,10 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     }
 
     totals.transfers_detected = await detectTransfers({ pool: dbPool });
+    // Transfers between our own accounts that never found a counterpart, read
+    // out of the description instead. Runs after pairing so it only looks at
+    // what pairing could not explain.
+    totals.internal_transfers_resolved = await resolveInternalDestinations({ pool: dbPool });
     log(`transfers: ${totals.transfers_detected} auto paired`);
 
     // Categorising runs last, over everything that is not manually set.

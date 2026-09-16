@@ -3,7 +3,7 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { detectTransfers, listCandidates, rejectPair, linkPair, buildCandidates, resolvePairs } from '../src/transfers.js';
+import { detectTransfers, listCandidates, rejectPair, linkPair, buildCandidates, resolvePairs, internalDestinationFor, resolveInternalDestinations } from '../src/transfers.js';
 import { centsToNumeric } from '../src/money.js';
 
 beforeEach(resetDatabase);
@@ -307,4 +307,59 @@ test('resolution prefers the closest date before looking at the text', () => {
   const { pairs } = resolvePairs(buildCandidates(rows, accounts));
   assert.equal(pairs.length, 1);
   assert.equal(pairs[0].b.id, '2', 'the same day match wins even though the other has stronger wording');
+});
+
+async function addTransferTxn(pool, accountId, description) {
+  const { rows } = await pool.query(
+    `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, raw)
+     values ($1,$2,'posted',current_date,$3,'-500.00','{}'::jsonb) returning id`,
+    [accountId, `txn_${Math.random().toString(36).slice(2, 14)}`, description],
+  );
+  return rows[0].id;
+}
+
+test('an internal transfer is recognised from the account number in its description', () => {
+  const accounts = [
+    { id: 'savings', masked_number: 'xxxx4047' },
+    { id: 'everyday', masked_number: 'xxxx9529' },
+    { id: 'loan', masked_number: 'xxxx0194' },
+  ];
+  // ING writes the destination account number into the description, so the
+  // destination is known even when the other side has not been synced yet.
+  assert.equal(
+    internalDestinationFor('INTERNAL TRANSFER TO LINKED ING ACCOUNT 923100 34239529', accounts, 'savings'),
+    'everyday',
+  );
+  // A number that is not ours stays unexplained, and so stays as spending.
+  assert.equal(
+    internalDestinationFor('INTERNAL TRANSFER TO LINKED ING ACCOUNT 923100 20185893', accounts, 'savings'),
+    null,
+  );
+  // A description quoting the account it is already on says nothing about where
+  // the money went.
+  assert.equal(
+    internalDestinationFor('INTERNAL TRANSFER 923100 89634047', accounts, 'savings'),
+    null,
+  );
+  assert.equal(internalDestinationFor('COLES 1234', accounts, 'savings'), null);
+});
+
+test('money moved to another spendable account is not spending, to a loan it is', async () => {
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx9529', is_liquid: true });
+  const savings = await makeAccount(pool, { masked_number: 'xxxx4047', is_liquid: true });
+  const loan = await makeAccount(pool, { masked_number: 'xxxx0194', is_liquid: false });
+
+  const toSavings = await addTransferTxn(pool, everyday.id, 'INTERNAL TRANSFER TO LINKED ING ACCOUNT 923100 89634047');
+  const toLoan = await addTransferTxn(pool, everyday.id, 'INTERNAL TRANSFER TO LINKED ING ACCOUNT 923100 20060194');
+
+  await resolveInternalDestinations({ client: pool });
+
+  const { rows } = await pool.query('select id, counts from budget_flows where id = any($1::uuid[])', [
+    [toSavings, toLoan],
+  ]);
+  const counts = Object.fromEntries(rows.map((row) => [row.id, row.counts]));
+  assert.equal(counts[toSavings], false, 'it is still our money, in the next account along');
+  assert.equal(counts[toLoan], true, 'paying down a loan really is cash out the door');
+  assert.ok(savings.id && loan.id);
 });

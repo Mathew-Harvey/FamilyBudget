@@ -453,17 +453,21 @@ test('the everyday rate follows the window, and recent is the default', async ()
   // long window drags it in, the default window does not, which is the whole
   // point of the default.
   for (let i = 150; i <= 200; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -30000, description: `RENO ${i}` });
-  for (let i = 1; i <= 90; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
+  // Spending from today back, so the window has a full set of days to divide
+  // by. The window is the last N days counting today, the same span the
+  // Spending page uses, so a fixture that starts yesterday leaves one day empty
+  // and the rate is honestly a day's worth lower.
+  for (let i = 0; i <= 130; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
 
-  const recent = await everydaySpendRate(60, pool);
+  const recent = await everydaySpendRate(120, pool);
   const long = await everydaySpendRate(365, pool);
-  assert.equal(numericToCents(recent.per_day), 5000, 'two months sees only the ordinary spending');
+  assert.equal(numericToCents(recent.per_day), 5000, 'the default window sees only the ordinary spending');
   assert.ok(numericToCents(long.per_day) > 5000, 'a year still carries the renovation');
 
   const projection = await forecast({ days: 30, client: pool });
-  assert.equal(projection.spend_window_days, 60, 'two months is the default');
+  assert.equal(projection.spend_window_days, 120, 'four months is the default, and scripts/backtest.js says why');
   assert.equal(numericToCents(projection.everyday_rate.per_day), 5000);
-  for (const span of [30, 60, 90]) {
+  for (const span of [30, 60, 90, 120, 180]) {
     assert.ok(projection.rate_by_window[span], `the ${span} day rate is reported alongside`);
   }
 });
@@ -482,4 +486,98 @@ test('the database clock agrees with the household clock', async () => {
   const pool = await getTestPool();
   const { rows } = await pool.query('select current_date::text as db_today');
   assert.equal(rows[0].db_today, today(), 'the connection is set to the household time zone');
+});
+
+// --- prediction accuracy fixes -------------------------------------------
+
+test('a one off is left out of the rate but kept in the totals', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 1000000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  for (let i = 0; i <= 59; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
+  const reno = await addTxn(pool, account.id, { date: daysAgo(10), cents: -3000000, description: 'BIG RENO' });
+
+  const before = await everydaySpendRate(60, pool);
+  assert.ok(numericToCents(before.per_day) > 5000, 'while it counts, one purchase sets the rate');
+
+  await pool.query('update transactions set one_off = true where id = $1', [reno]);
+  const after = await everydaySpendRate(60, pool);
+  assert.equal(numericToCents(after.per_day), 5000, 'marked as a one off, it stops setting the rate');
+  assert.equal(numericToCents(after.one_off_excluded), 3000000, 'and it is still reported, not hidden');
+
+  // It is still spending: every total and the Spending page must still show it.
+  const { rows } = await pool.query(
+    'select coalesce(sum(-amount),0) as spent from budget_flows where counts and amount < 0',
+  );
+  assert.equal(numericToCents(rows[0].spent), 3000000 + 60 * 5000);
+});
+
+test('the rate divides by the days we have history for, not the days asked for', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 100000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  // Thirty days of history, asked for over a hundred and twenty.
+  for (let i = 0; i <= 29; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -10000, description: `DAY ${i}` });
+
+  const rate = await everydaySpendRate(120, pool);
+  assert.equal(rate.effective_days, 30, 'only thirty days could have been observed');
+  assert.equal(numericToCents(rate.per_day), 10000, 'so the rate is a hundred a day, not a quarter of it');
+});
+
+test('a household already under its buffer has no runway left, not an unlimited one', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 50000); // $500
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  for (let i = 0; i <= 59; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -1000, description: `DAY ${i}` });
+
+  const projection = await forecast({ days: 30, buffer: '1000.00', client: pool });
+  assert.equal(projection.runway_days, 0, 'it is already below the buffer today');
+  assert.equal(projection.runway_date, today());
+});
+
+test('a pay period that brought in nothing counts as a zero, not as missing', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 100000);
+  const { rows: [income] } = await pool.query(
+    "insert into categories (name, kind) values ('Salary','income') returning id",
+  );
+  await setPayCycle('monthly', daysAgo(120), null, pool);
+  await ensurePayPeriods({ pool });
+
+  // Paid in the oldest period only, then the income stopped. Two of the three
+  // completed periods brought in nothing, so the median has to be nothing.
+  // Before the fix the empty periods were dropped from the set entirely and the
+  // only survivor was the one that got paid, so a lost job read as full pay.
+  await addTxn(pool, account.id, { date: daysAgo(100), cents: 400000, description: 'PAY', categoryId: income.id });
+
+  const projection = await forecast({ days: 30, client: pool });
+  assert.equal(
+    numericToCents(projection.expected_income.amount), 0,
+    'the empty periods have to count, or losing an income is invisible',
+  );
+});
+
+test('a stale opening balance is reported rather than quietly trusted', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await pool.query(
+    `insert into balances (account_id, balance_date, balance) values ($1, current_date - 9, '500.00')`,
+    [account.id],
+  );
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  const projection = await forecast({ days: 30, client: pool });
+  assert.ok(
+    projection.warnings.some((warning) => warning.kind === 'stale_balance'),
+    'nine days old is old enough to say so',
+  );
 });
