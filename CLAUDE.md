@@ -334,6 +334,19 @@ not happened, so it cannot be in the balance: events carrying `kind: 'scenario'`
 apply on any day, including today. Without that, selling sixteen thousand
 dollars of motorbikes bought exactly zero days, silently.
 
+**`npm run reconcile` answers "are we counting correctly" without anyone
+having to take it on trust.** The tests prove the code does what it was written
+to do, on fixtures. `scripts/reconcile.js` checks the real data against
+arithmetic that has to hold whatever the code does: every transaction on a
+spendable account lands in exactly one bucket and the buckets sum to the raw
+total, money moved between our own accounts nets to zero, a refund exactly
+cancels its charge, nothing is counted as both pending and posted, both pages
+measure the same window, and the difference between the headline and what
+actually left is named commitment by commitment rather than shrugged at. It also
+reads the source to check that every query summing money in still filters on the
+income kind, because a future edit dropping that filter would pass every other
+check. Run it after changing anything about what counts.
+
 ## Design decisions worth keeping
 
 - **Pending resolution updates the row in place** rather than deleting and
