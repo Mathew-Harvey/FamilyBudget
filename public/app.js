@@ -70,6 +70,7 @@ export function renderNav(current) {
     ['/transactions', 'Transactions'],
     ['/categories', 'Categories'],
     ['/rules', 'Rules'],
+    ['/buckets', 'Buckets'],
     ['/transfers', 'Transfers'],
     ['/sync', 'Sync'],
   ];

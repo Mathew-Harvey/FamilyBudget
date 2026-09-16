@@ -11,6 +11,7 @@ import { transfersRouter } from './routes/transfers.js';
 import { syncRouter } from './routes/sync.js';
 import { categoriesRouter } from './routes/categories.js';
 import { rulesRouter } from './routes/rules.js';
+import { bucketsRouter } from './routes/buckets.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -62,6 +63,7 @@ export function createApp() {
   app.use('/api/sync', syncRouter);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/rules', rulesRouter);
+  app.use('/api/buckets', bucketsRouter);
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'accounts.html')));
