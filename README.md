@@ -169,8 +169,8 @@ Environment variables:
 | `REDBARK_API_VERSION` | `2026-10-01.wattle` |
 | `SESSION_SECRET` | a long random string |
 | `NODE_ENV` | `production` |
-| `EMAIL_API_KEY` | your provider's key, if you want alerts |
-| `ALERT_FROM` | the address alerts come from |
+| `EMAIL_API_KEY` | your provider's key, if you want alerts. Resend keys start `re_` |
+| `ALERT_FROM` | the address alerts are sent **from**, at a domain verified with your provider |
 | `ANTHROPIC_API_KEY` | your Anthropic key, if you want the analysis |
 | `HOUSEHOLD_TIMEZONE` | `Australia/Perth` |
 
@@ -216,6 +216,23 @@ Render dashboard. It runs in a single transaction, so a failure leaves the
 database untouched, and it records each migration so a later `npm run migrate`
 sees the work as done. Regenerate it with `npm run bootstrap-sql` after adding a
 migration.
+
+### Turning on alerts
+
+`EMAIL_API_URL` defaults to Resend, so a Resend key needs only `EMAIL_API_KEY`
+and `ALERT_FROM`. The app posts `{from, to, subject, text}` with a bearer token,
+which is Resend's API as it stands.
+
+`ALERT_FROM` has to be at a domain verified in Resend, or the send comes back
+403. `onboarding@resend.dev` works without verifying anything and will only
+deliver to the address your Resend account is registered under, which is enough
+for a household of two.
+
+The address alerts go **to** is not an environment variable. It is set on the
+Alerts page, along with the switch that turns sending on at all, because it is
+a thing you change rather than a thing you deploy. That page has a **Send test**
+button, which is the fastest way to find out whether the key and the from
+address are right.
 
 ### Creating the first login
 
