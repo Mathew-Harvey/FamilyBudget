@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spending</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h2>Spending</h2>
+  <p class="muted">Where the money went. Tap anything to open it up: a group into its categories, a category into the places you paid, a place into the actual transactions.</p>
+  <div id="notice"></div>
+
+  <div class="card stack">
+    <div class="row">
+      <div><label for="window">Over the last</label><select id="window">
+        <option value="30">month</option>
+        <option value="60" selected>2 months</option>
+        <option value="90">3 months</option>
+        <option value="365">year</option>
+      </select></div>
+      <div class="grow" style="text-align:right">
+        <div class="amount out" style="font-size:1.5rem" id="total">&nbsp;</div>
+        <div class="muted" id="totalNote"></div>
+      </div>
+    </div>
+    <div class="muted" id="windowNote"></div>
+  </div>
+
+  <div class="row" style="margin-bottom:0.5rem">
+    <button class="small" id="viewGroups">By category</button>
+    <button class="small" id="viewMerchants">By place</button>
+    <button class="small" id="viewUnexplained">Not yet identified</button>
+  </div>
+
+  <div id="body"><p class="muted">Loading...</p></div>
+</main>
+<script type="module" src="/spending.js"></script>
+</body>
+</html>

@@ -720,4 +720,92 @@ select 5, 'SmartRider is public transport', 'any', 'contains', 'SMARTRIDER', c.i
 
 insert into schema_migrations (filename) values ('014_transport_relabel.sql') on conflict do nothing;
 
+-- ============================================================
+-- 015_merchants.sql
+-- ============================================================
+-- Making a bank statement legible.
+--
+-- A description is full of processor prefixes, store numbers and truncation.
+-- merchant_key reduces it to something stable, and merchants holds what we call
+-- that place and what it actually is. The key is computed in JavaScript and
+-- stored, never recomputed in SQL: one definition, for the same reason
+-- matchKeyFor has one.
+create table merchants (
+  match_key    text primary key,
+  -- What to show. Two keys that are really the same place, "The Little Bakery"
+  -- and a truncated "The Little Baker", are merged by sharing a display name,
+  -- which needs no alias table.
+  display_name text not null,
+  -- Plain English: what this place is and why money goes there. Filled in by
+  -- hand or worked out by Claude.
+  what_it_is   text,
+  -- Where spending here usually belongs.
+  category_id  uuid references categories (id) on delete set null,
+  source       text not null default 'auto' check (source in ('auto', 'manual', 'claude')),
+  -- Things we consider essential are marked, so the trimming view can put them
+  -- aside rather than suggesting the household stop paying for power.
+  essential    boolean,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index merchants_display_idx on merchants (display_name);
+
+alter table transactions add column merchant_key text;
+
+create index transactions_merchant_idx on transactions (merchant_key);
+
+insert into schema_migrations (filename) values ('015_merchants.sql') on conflict do nothing;
+
+-- ============================================================
+-- 016_merchants_analysis_kind.sql
+-- ============================================================
+-- Identifying merchants is its own kind of analysis.
+alter table analyses drop constraint if exists analyses_kind_check;
+alter table analyses
+  add constraint analyses_kind_check check (kind in (
+    'periodic', 'on_demand', 'question', 'expense_plan', 'afford', 'merchants'
+  ));
+
+insert into schema_migrations (filename) values ('016_merchants_analysis_kind.sql') on conflict do nothing;
+
+-- ============================================================
+-- 017_budget_flows_merchant_key.sql
+-- ============================================================
+-- budget_flows was created before merchant_key existed, and a view does not
+-- pick up columns added to its table afterwards. Spending by merchant is a
+-- question about flows, so the key belongs on the view rather than every caller
+-- joining back to transactions for it.
+--
+-- The new columns go on the end. create or replace can append to a view but
+-- cannot reorder or rename what is already there, so inserting them next to the
+-- other transaction fields fails with "cannot change name of view column".
+create or replace view budget_flows as
+select
+  t.id,
+  t.account_id,
+  t.txn_date,
+  t.posted_date,
+  t.amount,
+  t.status,
+  t.description,
+  t.display_description,
+  t.category_id,
+  t.is_transfer,
+  t.transfer_pair_id,
+  a.is_liquid                 as from_liquid,
+  pa.is_liquid                as to_liquid,
+  (
+    a.is_liquid
+    and (not t.is_transfer or not coalesce(pa.is_liquid, true))
+  )                           as counts,
+  t.merchant_name,
+  t.merchant_key
+from transactions t
+join accounts a on a.id = t.account_id
+left join transactions p on p.id = t.transfer_pair_id
+left join accounts pa on pa.id = p.account_id;
+
+insert into schema_migrations (filename) values ('017_budget_flows_merchant_key.sql') on conflict do nothing;
+
 commit;

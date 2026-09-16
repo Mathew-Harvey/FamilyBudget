@@ -76,7 +76,7 @@ Fill in `.env`. It is gitignored and must never be committed.
 | `SESSION_SECRET` | A long random string. `node -e "console.log(crypto.randomUUID())"` |
 | `NODE_ENV` | `development` locally, `production` on Render. |
 | `HOUSEHOLD_TIMEZONE` | Optional. Defaults to `Australia/Perth`. Every calendar date, in the app and in SQL, is in this zone. |
-| `SPEND_WINDOW_DAYS` | Optional. Defaults to 30. How much recent spending sets the everyday rate. |
+| `SPEND_WINDOW_DAYS` | Optional. Defaults to 60. How much recent spending sets the everyday rate. |
 | `EMAIL_API_URL` | Optional. Defaults to Resend's endpoint. |
 | `EMAIL_API_KEY` | Optional. Alerts stay off until this and `ALERT_FROM` are set. |
 | `ALERT_FROM` | Optional. The address alerts are sent from. |
@@ -287,9 +287,11 @@ existed does not roll in as a debt.
 Spendable cash is projected forward day by day from three things: expected
 income on each payday, the recurring commitments, and an everyday spend rate
 taken from recent spending with the commitments removed so nothing is counted
-twice. The rate uses the last 30 days by default, because recent behaviour
-predicts next month far better than a long average full of one offs does; the
-page shows the 30, 60 and 90 day rates side by side and lets you pick. The runway is the first day the projection drops below zero, or below a
+twice. The rate uses the last two months by default. Long enough that one quiet or
+heavy fortnight does not set it, short enough to exclude last year's
+renovation, which put tens of thousands through the account over a few weeks
+and will not happen again. The page shows the 30, 60 and 90 day rates side by
+side and lets you pick. The runway is the first day the projection drops below zero, or below a
 buffer you choose.
 
 Only liquid accounts count. The mortgage redraw is deliberately ignored: it is

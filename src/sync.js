@@ -12,6 +12,7 @@ import { detectTransfers } from './transfers.js';
 import { categoriseAll } from './categorise.js';
 import { detectCommitments } from './commitments.js';
 import { today, daysAgo } from './dates.js';
+import { merchantKeyFor, backfillMerchantKeys, ensureMerchantRows } from './merchants.js';
 import { runAlerts } from './alerts.js';
 import { runPeriodicAnalysis } from './analyst.js';
 
@@ -90,6 +91,8 @@ export function mapTransaction(txn) {
     extended_description: txn.extended_description ?? null,
     // Banks pad this field, for example "SHHPS P&C          ".
     merchant_name: txn.merchant_name ? txn.merchant_name.trim() : null,
+    // Worked out here, at write time, so SQL never has to reproduce it.
+    merchant_key: merchantKeyFor(txn.description, txn.merchant_name),
     provider_category: txn.provider_category ?? null,
     raw: txn,
   };
@@ -175,6 +178,7 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
            merchant_name        = $11,
            provider_category    = $12,
            raw                  = $13,
+           merchant_key         = $14,
            last_seen_at         = now(),
            updated_at           = case
              when status is distinct from $3
@@ -199,6 +203,7 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
           txn.merchant_name,
           txn.provider_category,
           JSON.stringify(txn.raw),
+          txn.merchant_key,
         ],
       );
       if (result.rows[0]?.changed) counts.updated++;
@@ -229,6 +234,7 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
              merchant_name        = $10,
              provider_category    = $11,
              raw                  = $12,
+             merchant_key         = $13,
              last_seen_at         = now(),
              updated_at           = now()
            where id = $1`,
@@ -245,6 +251,7 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
             txn.merchant_name,
             txn.provider_category,
             JSON.stringify(txn.raw),
+            txn.merchant_key,
           ],
         );
         claimedPendingIds.add(match.id);
@@ -257,8 +264,8 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
       `insert into transactions (
          account_id, redbark_txn_id, status, txn_date, posted_date, description,
          amount, direction, reference, extended_description, merchant_name,
-         provider_category, raw
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         provider_category, raw, merchant_key
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         accountId,
         txn.redbark_txn_id,
@@ -273,6 +280,7 @@ export async function persistTransactions(client, accountId, redbarkTxns) {
         txn.merchant_name,
         txn.provider_category,
         JSON.stringify(txn.raw),
+        txn.merchant_key,
       ],
     );
     counts.inserted++;
@@ -430,6 +438,13 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     // Categorising runs last, over everything that is not manually set.
     totals.txns_categorised = await categoriseAll({ pool: dbPool });
     log(`categories: ${totals.txns_categorised} transactions categorised`);
+
+    // Anything without a merchant key yet, for example rows written before this
+    // existed, and a merchants row for every key seen.
+    await withTransaction(async (client) => {
+      await backfillMerchantKeys(client);
+      await ensureMerchantRows(client);
+    }, dbPool);
 
     // Commitments feed the forecast, so they are refreshed once categories are
     // settled.

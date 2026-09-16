@@ -449,19 +449,23 @@ test('the everyday rate follows the window, and recent is the default', async ()
   await setPayCycle('monthly', daysAgo(400), '0', pool);
   await ensurePayPeriods({ pool });
 
-  // Heavy spending two months ago, quiet lately. A long window blends the two,
-  // the recent window sees the quiet month, which is the better guide.
-  for (let i = 31; i <= 90; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -30000, description: `OLD ${i}` });
-  for (let i = 1; i <= 30; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NEW ${i}` });
+  // A renovation sized burst six months back, ordinary spending since. The
+  // long window drags it in, the default window does not, which is the whole
+  // point of the default.
+  for (let i = 150; i <= 200; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -30000, description: `RENO ${i}` });
+  for (let i = 1; i <= 90; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NORMAL ${i}` });
 
-  const recent = await everydaySpendRate(30, pool);
-  const long = await everydaySpendRate(90, pool);
-  assert.equal(numericToCents(recent.per_day), 5000);
-  assert.ok(numericToCents(long.per_day) > 5000, 'ninety days still carries the old spending');
+  const recent = await everydaySpendRate(60, pool);
+  const long = await everydaySpendRate(365, pool);
+  assert.equal(numericToCents(recent.per_day), 5000, 'two months sees only the ordinary spending');
+  assert.ok(numericToCents(long.per_day) > 5000, 'a year still carries the renovation');
 
   const projection = await forecast({ days: 30, client: pool });
-  assert.equal(projection.spend_window_days, 30, 'thirty days is the default');
-  assert.equal(projection.rate_by_window[90].per_day, long.per_day, 'the other windows are reported alongside');
+  assert.equal(projection.spend_window_days, 60, 'two months is the default');
+  assert.equal(numericToCents(projection.everyday_rate.per_day), 5000);
+  for (const span of [30, 60, 90]) {
+    assert.ok(projection.rate_by_window[span], `the ${span} day rate is reported alongside`);
+  }
 });
 
 test('today is the household day, not the UTC day', () => {

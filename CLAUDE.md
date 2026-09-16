@@ -79,8 +79,9 @@ observed value, never a half cent average. Rates like "per month" are computed
 in SQL as numeric.
 
 **Recent spending is the guide, not the long average.** The everyday spend rate
-defaults to the last 30 days (SPEND_WINDOW_DAYS, and a selector on the Forecast
-page). A year of history is full of one offs, an 11,000 dollar car repair, a
+defaults to the last two months (SPEND_WINDOW_DAYS, and a selector on the
+Forecast page). Two months is long enough that one quiet fortnight does not set
+the rate, and short enough to exclude the 2025 renovation. A year of history is full of one offs, an 11,000 dollar car repair, a
 renovation, and of circumstances that have since changed. The forecast reports
 the 30, 60 and 90 day rates side by side so a skew is visible. The analysis
 prompt says the same thing to Claude.
@@ -91,6 +92,11 @@ Postgres connection so current_date agrees. Render and new Date() are UTC, which
 is yesterday in Perth from 4pm to midnight UTC: the pay period was wrong for a
 third of every day. Never call new Date().toISOString().slice(0, 10) for a
 calendar date; use today(), daysAgo(), daysFromNow(), addDays().
+
+**Merchant keys are computed in JavaScript and stored**, in
+transactions.merchant_key, never recomputed in SQL. Same reason as matchKeyFor:
+two copies drift. Two keys that are the same place are merged by giving them the
+same display_name in merchants, which is why there is no alias table.
 
 **Sign convention.** Negative is money out. On a **loan** account this inverts in
 meaning: a repayment is positive, because it reduces the debt, and interest

@@ -6,6 +6,7 @@ import {
   afford,
   suggestTrims,
   trimmableSpend,
+  identifyMerchants,
   planExpense,
   acceptProposal,
   buildSnapshot,
@@ -66,6 +67,16 @@ analystRouter.post('/afford', async (req, res, next) => {
     const { amount, description, when } = req.body ?? {};
     if (!amount || Number.isNaN(Number(amount))) return res.status(400).json({ error: 'An amount is required' });
     res.json({ analysis: await afford({ amount, description: description ? String(description).slice(0, 500) : null, when: when || null }) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Works out what the unrecognised lines on the statement are.
+analystRouter.post('/identify-merchants', async (req, res, next) => {
+  try {
+    const window = Math.min(Math.max(Number(req.body?.window) || 60, 7), 400);
+    res.json(await identifyMerchants({ window }));
   } catch (err) {
     next(err);
   }

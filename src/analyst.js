@@ -685,6 +685,122 @@ export async function suggestTrims({ client = { query }, messages } = {}) {
   return store(record, client);
 }
 
+
+// --- identifying merchants ------------------------------------------------
+
+const MERCHANT_SCHEMA = {
+  type: 'object',
+  properties: {
+    merchants: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          match_key: { type: 'string', description: 'Copy the key back exactly as it was given.' },
+          display_name: { type: 'string', description: 'What a person would call this place.' },
+          what_it_is: { type: 'string', description: 'One short line: what it is and what the money buys.' },
+          suggested_category: { type: ['string', 'null'], description: 'The best fit from the category list given, or null if none fits.' },
+          essential: { type: 'boolean', description: 'True for things like power, water, insurance, medical, loan repayments.' },
+          confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+        },
+        required: ['match_key', 'display_name', 'what_it_is', 'suggested_category', 'essential', 'confidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['merchants'],
+  additionalProperties: false,
+};
+
+// Works out what the unrecognised places on the statement actually are, from
+// the description, the amounts and how often they recur. Australian merchants,
+// so a model that knows the local names has a real advantage over a lookup
+// table anyone would have to maintain by hand.
+export async function identifyMerchants({ window = 60, client = { query }, messages } = {}) {
+  const settings = await getAnalystSettings(client);
+
+  const { rows: unknown } = await client.query(
+    `select t.merchant_key, count(*)::int as times,
+            round(sum(-t.amount), 2) as total,
+            round(avg(-t.amount), 2) as typical,
+            array_agg(distinct left(t.description, 48)) as examples
+       from budget_flows t
+       left join merchants m on m.match_key = t.merchant_key
+      where t.counts and t.amount < 0
+        and m.what_it_is is null
+        and coalesce(m.source, 'auto') = 'auto'
+        and t.merchant_key is not null
+        and t.txn_date > current_date - $1::integer
+      group by t.merchant_key
+      order by sum(-t.amount) desc
+      limit 40`,
+    [window],
+  );
+  if (!unknown.length) return { identified: 0, merchants: [] };
+
+  const { rows: categoryRows } = await client.query(
+    `select c.name from categories c where c.parent_id is not null and not c.archived order by c.name`,
+  );
+  const categoryNames = categoryRows.map((row) => row.name);
+
+  const record = await ask({
+    snapshot: {
+      // Only the merchant lines, not the whole financial picture: this question
+      // does not need balances or a runway, and a smaller prompt is cheaper.
+      categories_available: categoryNames,
+      unidentified_merchants: unknown.map((row) => ({
+        match_key: row.merchant_key,
+        times_seen: row.times,
+        total_spent: row.total,
+        typical_amount: row.typical,
+        example_descriptions: (row.examples || []).map(scrubLabel),
+      })),
+    },
+    kind: 'merchants',
+    effort: settings?.effort ?? 'high',
+    schema: MERCHANT_SCHEMA,
+    messages,
+    instruction: [
+      'These are lines from an Australian bank statement that the app could not identify.',
+      'For each one, say what the place is and what the money buys, in one short line.',
+      'Use the example descriptions, the typical amount and how often it recurs as evidence.',
+      'Pick a suggested_category only from the list given, exactly as spelled there, or null if none fits.',
+      'If you genuinely do not know what something is, say so in what_it_is and set confidence to low. Do not invent a plausible sounding business.',
+      'Copy each match_key back exactly as given, it is how the answer is matched up.',
+    ].join(' '),
+  });
+
+  // Write back only what is usable, and never over a name someone chose.
+  const byName = new Map(
+    (await client.query('select id, name from categories where parent_id is not null')).rows.map((r) => [r.name, r.id]),
+  );
+  let identified = 0;
+  for (const entry of record.result.merchants ?? []) {
+    if (!entry.match_key) continue;
+    const { rowCount } = await client.query(
+      `update merchants set
+         display_name = case when source = 'auto' then coalesce($2, display_name) else display_name end,
+         what_it_is   = coalesce($3, what_it_is),
+         category_id  = coalesce(category_id, $4),
+         essential    = coalesce(essential, $5),
+         source       = case when source = 'auto' then 'claude' else source end,
+         updated_at   = now()
+       where match_key = $1 and source <> 'manual'`,
+      [
+        entry.match_key,
+        entry.display_name || null,
+        entry.what_it_is || null,
+        entry.suggested_category ? byName.get(entry.suggested_category) ?? null : null,
+        typeof entry.essential === 'boolean' ? entry.essential : null,
+      ],
+    );
+    identified += rowCount;
+  }
+
+  await store(record, client);
+  return { identified, merchants: record.result.merchants ?? [] };
+}
+
 // Called at the end of a sync. Only runs when it is switched on and the cadence
 // has come round, so a twice daily sync does not mean twice daily analysis.
 export async function runPeriodicAnalysis(options = {}) {

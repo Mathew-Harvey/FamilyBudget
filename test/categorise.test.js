@@ -3,11 +3,12 @@ import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
 import { categoriseAll, ruleMatches, firstMatchingRule, setCategoryManually } from '../src/categorise.js';
+import { merchantKeyFor, titleCase, backfillMerchantKeys, ensureMerchantRows, UNKNOWN_KEY } from '../src/merchants.js';
 import { centsToNumeric } from '../src/money.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
-  await pool.query('truncate rules, provider_category_map, categories cascade');
+  await pool.query('truncate merchants, rules, provider_category_map, categories cascade');
   return pool;
 });
 after(closeTestPool);
@@ -293,4 +294,74 @@ test('the seeded taxonomy names fuel as fuel and gives public transport its own 
     await client.query('rollback');
     client.release();
   }
+});
+
+// --- merchant identification ---------------------------------------------
+
+test('processor prefixes are stripped without eating real merchant names', () => {
+  assert.equal(merchantKeyFor('SQ *THE LITTLE BAKERY'), 'THE LITTLE BAKERY');
+  assert.equal(merchantKeyFor('PAYPAL *PETBARN'), 'PETBARN');
+  assert.equal(merchantKeyFor('SP FUNKY MONKEY BARS'), 'FUNKY MONKEY BARS');
+  assert.equal(merchantKeyFor('DIRECT DEBIT 000650 COMMONWEALTH BNK LN REPAY 572740194'), 'COMMONWEALTH BNK LN REPAY');
+  // SP must require a separator, or it eats the start of SPOTLIGHT.
+  assert.equal(merchantKeyFor('SPOTLIGHT PTY LTD'), 'SPOTLIGHT');
+  assert.equal(merchantKeyFor('SPUDSHED MANDURAH'), 'SPUDSHED MANDURAH');
+});
+
+test('the same shop reaches one key however it was paid for', () => {
+  const keys = new Set([
+    merchantKeyFor('BUNNINGS 314000'),
+    merchantKeyFor('BUNNINGS HALLS HEAD 2707'),
+    merchantKeyFor('Bunnings Group Limited'),
+  ]);
+  assert.equal(keys.size, 1, `expected one key, got ${[...keys].join(', ')}`);
+  assert.equal([...keys][0], 'BUNNINGS');
+
+  const amazon = new Set([
+    merchantKeyFor('AMAZON RETA* AMAZON AU'),
+    merchantKeyFor('AMAZON MARKETPLACE AU'),
+    merchantKeyFor('Amazon Digital Svcs. AU'),
+  ]);
+  assert.equal(amazon.size, 1, 'every Amazon is Amazon');
+});
+
+test('a description the bank never gave is named as such, not invented', () => {
+  assert.equal(merchantKeyFor('Description not currently available'), UNKNOWN_KEY);
+  assert.equal(merchantKeyFor(''), UNKNOWN_KEY);
+  assert.equal(merchantKeyFor(null), UNKNOWN_KEY);
+  assert.equal(titleCase(UNKNOWN_KEY), 'Not described by the bank');
+});
+
+test("Redbark's own merchant name wins over the noisier description", () => {
+  assert.equal(merchantKeyFor('SQ *SOMETHING ELSE 1234', '  The Little Bakery  '), 'THE LITTLE BAKERY');
+});
+
+test('backfill fills every row and gives each key a merchant to be named in', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool);
+  for (const description of ['SQ *THE LITTLE BAKERY', 'BUNNINGS 314000', 'PAYPAL *PETBARN', 'Description not currently available']) {
+    await pool.query(
+      `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, raw)
+       values ($1, $2, 'posted', current_date, $3, '-10.00', '{}'::jsonb)`,
+      [account.id, `txn_${Math.random().toString(36).slice(2, 12)}`, description],
+    );
+  }
+
+  const filled = await backfillMerchantKeys(pool);
+  assert.equal(filled, 4);
+  const missing = await pool.query('select count(*)::int as n from transactions where merchant_key is null');
+  assert.equal(missing.rows[0].n, 0);
+
+  await ensureMerchantRows(pool);
+  const { rows } = await pool.query('select match_key, display_name, source from merchants order by match_key');
+  assert.equal(rows.length, 4);
+  assert.ok(rows.every((row) => row.source === 'auto'));
+  const bakery = rows.find((row) => row.match_key === 'THE LITTLE BAKERY');
+  assert.equal(bakery.display_name, 'The Little Bakery', 'the generated default is readable');
+
+  // A name someone chose is never overwritten by a later pass.
+  await pool.query("update merchants set display_name = 'Our bakery', source = 'manual' where match_key = 'THE LITTLE BAKERY'");
+  await ensureMerchantRows(pool);
+  const after = await pool.query("select display_name from merchants where match_key = 'THE LITTLE BAKERY'");
+  assert.equal(after.rows[0].display_name, 'Our bakery');
 });

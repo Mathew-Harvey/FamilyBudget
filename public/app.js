@@ -67,6 +67,7 @@ export function accountLabel(account) {
 export function renderNav(current) {
   const pages = [
     ['/accounts', 'Accounts'],
+    ['/spending', 'Spending'],
     ['/transactions', 'Transactions'],
     ['/categories', 'Categories'],
     ['/rules', 'Rules'],

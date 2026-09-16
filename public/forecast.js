@@ -86,7 +86,7 @@ async function load() {
   try {
     const days = document.getElementById('days').value;
     const buffer = document.getElementById('buffer').value || 0;
-    const window = document.getElementById('window').value || 30;
+    const window = document.getElementById('window').value || 60;
     const data = await api(`/api/forecast?days=${days}&buffer=${buffer}&window=${window}`);
 
     const summary = document.getElementById('summary');

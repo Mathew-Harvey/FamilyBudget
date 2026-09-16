@@ -27,11 +27,13 @@ const iso = (date) => date.toISOString().slice(0, 10);
 const toCents = (value) => numericToCents(value ?? 0);
 const fromCents = centsToNumeric;
 
-// How far back the everyday spend rate looks. Recent behaviour predicts the
-// next month far better than a long average does: a year of history is full of
-// one offs and of circumstances that have since changed. Thirty days by
-// default, adjustable per request.
-export const DEFAULT_SPEND_WINDOW_DAYS = Number(process.env.SPEND_WINDOW_DAYS || 30);
+// How far back the everyday spend rate looks. Two months by default: long
+// enough that one quiet or heavy fortnight does not set the rate, short enough
+// to exclude last year's renovation, which put tens of thousands through the
+// account over a few weeks and is not going to happen again. Adjustable per
+// request, and the forecast reports the other windows alongside so a skew is
+// visible.
+export const DEFAULT_SPEND_WINDOW_DAYS = Number(process.env.SPEND_WINDOW_DAYS || 60);
 
 // What we can actually spend today: the latest balance of every liquid account.
 export async function liquidBalance(client = { query }) {
