@@ -86,7 +86,8 @@ async function load() {
   try {
     const days = document.getElementById('days').value;
     const buffer = document.getElementById('buffer').value || 0;
-    const data = await api(`/api/forecast?days=${days}&buffer=${buffer}`);
+    const window = document.getElementById('window').value || 30;
+    const data = await api(`/api/forecast?days=${days}&buffer=${buffer}&window=${window}`);
 
     const summary = document.getElementById('summary');
     summary.innerHTML = '';
@@ -110,10 +111,16 @@ async function load() {
     summary.append(
       el('div', { class: 'muted' }, [
         `Income ${formatAmount(data.expected_income.amount)} each ${data.cycle?.cadence || 'period'} (${data.expected_income.source}). `,
-        `Everyday spending ${formatAmount(data.everyday_rate.per_day)} a day. `,
-        `Committed ${formatAmount(data.everyday_rate.committed)} over the last ${data.everyday_rate.days} days.`,
+        `Everyday spending ${formatAmount(data.everyday_rate.per_day)} a day from the last ${data.spend_window_days} days. `,
+        `Committed ${formatAmount(data.everyday_rate.committed)} in that window.`,
       ]),
     );
+    // The same rate over the other windows, so it is obvious when a one off is
+    // skewing things and the runway should be read with that in mind.
+    const spread = Object.entries(data.rate_by_window || {})
+      .map(([span, rate]) => `${span}d ${formatAmount(rate.per_day)}`)
+      .join(', ');
+    if (spread) summary.append(el('div', { class: 'muted', text: `Per day by window: ${spread}. Recent is the better guide.` }));
     summary.append(
       el('div', { class: 'muted', text: `Lowest point ${formatAmount(data.lowest_balance)} on ${data.lowest_date}.` }),
     );
@@ -159,6 +166,7 @@ async function load() {
 
 document.getElementById('days').addEventListener('change', load);
 document.getElementById('buffer').addEventListener('change', load);
+document.getElementById('window').addEventListener('change', load);
 document.getElementById('redetect').addEventListener('click', async () => {
   document.getElementById('detectState').textContent = 'Looking...';
   try {

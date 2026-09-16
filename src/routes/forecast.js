@@ -1,7 +1,7 @@
 // Stage 4: the forecast, the runway, and the commitments behind them.
 import { Router } from 'express';
 import { query } from '../db.js';
-import { forecast } from '../forecast.js';
+import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments } from '../commitments.js';
 
 export const forecastRouter = Router();
@@ -9,8 +9,10 @@ export const forecastRouter = Router();
 forecastRouter.get('/', async (req, res, next) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 90, 14), 365);
-    const buffer = Number(req.query.buffer) || 0;
-    res.json(await forecast({ days, buffer }));
+    // Normalised once here so the forecast only ever sees exact 2dp text.
+    const buffer = (Number(req.query.buffer) || 0).toFixed(2);
+    const window = Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 180);
+    res.json(await forecast({ days, buffer, window }));
   } catch (err) {
     next(err);
   }

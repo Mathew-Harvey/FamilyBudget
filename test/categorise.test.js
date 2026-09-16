@@ -267,3 +267,30 @@ test('firstMatchingRule returns null when nothing matches', () => {
   const rules = [{ match_field: 'any', match_type: 'contains', match_value: 'NOPE' }];
   assert.equal(firstMatchingRule(rules, { description: 'SOMETHING' }), null);
 });
+
+
+test('the seeded taxonomy names fuel as fuel and gives public transport its own line', async () => {
+  const pool = await getTestPool();
+  const { readFile } = await import('node:fs/promises');
+  const client = await pool.connect();
+  try {
+    // Replay the seed and the relabel inside a transaction that is rolled back,
+    // so this checks the migrations as shipped without depending on suite order.
+    await client.query('begin');
+    await client.query(await readFile(new URL('../migrations/004_seed_taxonomy.sql', import.meta.url), 'utf8'));
+    await client.query(await readFile(new URL('../migrations/014_transport_relabel.sql', import.meta.url), 'utf8'));
+
+    const { rows } = await client.query(
+      `select c.name from categories c join categories g on g.id = c.parent_id
+        where g.name = 'Getting around' order by c.sort_order`,
+    );
+    assert.deepEqual(rows.map((r) => r.name), ['Fuel and car', 'Public transport', 'Travel and holidays']);
+    const gone = await client.query("select count(*)::int as n from categories where name in ('Transport', 'Travel')");
+    assert.equal(gone.rows[0].n, 0, 'the ambiguous names are gone');
+    const rule = await client.query("select match_value from rules where name = 'SmartRider is public transport'");
+    assert.equal(rule.rows[0].match_value, 'SMARTRIDER');
+  } finally {
+    await client.query('rollback');
+    client.release();
+  }
+});

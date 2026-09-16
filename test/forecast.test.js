@@ -2,12 +2,13 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { assessSchedule, matchKeyFor, detectCommitments, median } from '../src/commitments.js';
+import { assessSchedule, matchKeyFor, detectCommitments, median, medianCents } from '../src/commitments.js';
 import { forecast, liquidBalance, everydaySpendRate } from '../src/forecast.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
 import { evaluateAlerts, runAlerts, updateSettings } from '../src/alerts.js';
 import { sendEmail } from '../src/email.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
+import { daysAgo, addDays, today } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
@@ -19,7 +20,6 @@ beforeEach(async () => {
 });
 after(closeTestPool);
 
-const daysAgo = (n) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 
 async function addTxn(pool, accountId, { date, cents, description = 'TEST', categoryId = null }) {
   const { rows } = await pool.query(
@@ -406,4 +406,76 @@ test('a one off purchase can be tested without storing anything', async () => {
   assert.ok(after.runway_days < before.runway_days, 'spending $2000 should bring the runway forward');
   const { rows } = await pool.query('select count(*)::int as n from transactions');
   assert.equal(rows[0].n, 100, 'a scenario must not write anything');
+});
+
+
+// --- exactness and recency -----------------------------------------------
+
+test('the typical amount is a real observed value in whole cents, never a half cent average', () => {
+  assert.equal(medianCents([100, 300]), 100, 'an even count takes the lower middle, not 200 by averaging');
+  assert.equal(medianCents([100, 200, 300]), 200);
+  assert.equal(medianCents([-1800, -1655, -1800, -1800]), -1800);
+  assert.equal(medianCents([]), 0);
+});
+
+test('the forecast refuses a float amount rather than rounding it', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 100000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  await assert.rejects(
+    () => forecast({ days: 30, client: pool, extraEvents: [{ date: daysAgo(-3), label: 'x', amount: 12.345 }] }),
+    /float/,
+  );
+});
+
+test('spendable cash adds awkward cents exactly', async () => {
+  const pool = await getTestPool();
+  const a = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  const b = await makeAccount(pool, { masked_number: 'xxxx2222', is_liquid: true });
+  const c = await makeAccount(pool, { masked_number: 'xxxx3333', is_liquid: true });
+  await setBalance(pool, a.id, 10);
+  await setBalance(pool, b.id, 20);
+  await setBalance(pool, c.id, 97063);
+  const balance = await liquidBalance(pool);
+  assert.equal(balance.total, '970.93');
+});
+
+test('the everyday rate follows the window, and recent is the default', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 1000000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+
+  // Heavy spending two months ago, quiet lately. A long window blends the two,
+  // the recent window sees the quiet month, which is the better guide.
+  for (let i = 31; i <= 90; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -30000, description: `OLD ${i}` });
+  for (let i = 1; i <= 30; i++) await addTxn(pool, account.id, { date: daysAgo(i), cents: -5000, description: `NEW ${i}` });
+
+  const recent = await everydaySpendRate(30, pool);
+  const long = await everydaySpendRate(90, pool);
+  assert.equal(numericToCents(recent.per_day), 5000);
+  assert.ok(numericToCents(long.per_day) > 5000, 'ninety days still carries the old spending');
+
+  const projection = await forecast({ days: 30, client: pool });
+  assert.equal(projection.spend_window_days, 30, 'thirty days is the default');
+  assert.equal(projection.rate_by_window[90].per_day, long.per_day, 'the other windows are reported alongside');
+});
+
+test('today is the household day, not the UTC day', () => {
+  // At 20:00 UTC on the 27th it is already the 28th in Perth, which matters on
+  // payday.
+  const late = new Date('2026-09-27T20:00:00Z');
+  assert.equal(today(late), '2026-09-28');
+  const early = new Date('2026-09-27T10:00:00Z');
+  assert.equal(today(early), '2026-09-27');
+  assert.equal(addDays('2026-02-28', 1), '2026-03-01');
+});
+
+test('the database clock agrees with the household clock', async () => {
+  const pool = await getTestPool();
+  const { rows } = await pool.query('select current_date::text as db_today');
+  assert.equal(rows[0].db_today, today(), 'the connection is set to the household time zone');
 });

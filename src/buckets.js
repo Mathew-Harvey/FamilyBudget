@@ -8,6 +8,7 @@
 // are excluded everywhere in here.
 import { query, withTransaction } from './db.js';
 import { normaliseDescription } from './matching.js';
+import { today, daysFromNow } from './dates.js';
 
 const DAY_MS = 86_400_000;
 
@@ -90,7 +91,7 @@ export async function ensurePayPeriods(options = {}) {
     const { rows } = await client.query('select min(txn_date) as earliest from transactions');
     const earliest = rows[0].earliest ? String(rows[0].earliest).slice(0, 10) : cycle.anchor_date;
     const from = earliest < cycle.anchor_date ? earliest : cycle.anchor_date;
-    const to = iso(addDays(new Date(), options.aheadDays ?? 400));
+    const to = daysFromNow(options.aheadDays ?? 400);
 
     const wanted = periodsBetween(cycle.cadence, cycle.anchor_date, from, to);
     let created = 0;
@@ -296,7 +297,9 @@ export async function periodForDate(date, client = { query }) {
 }
 
 export async function currentPeriod(client = { query }) {
-  return periodForDate(new Date().toISOString().slice(0, 10), client);
+  // The household's day, not UTC's. At 6am in Perth on payday, UTC is still
+  // yesterday, and yesterday is the previous period.
+  return periodForDate(today(), client);
 }
 
 // Suggests a pay cycle by looking at what income actually did. Used to fill in

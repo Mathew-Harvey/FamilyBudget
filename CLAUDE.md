@@ -71,6 +71,27 @@ registers type parsers so numeric arrives as a string and date arrives as
 `YYYY-MM-DD`: do not remove them, a date parsed into a JavaScript Date in the
 server's local timezone can move a transaction a day.
 
+**forecast.js, commitments.js and analyst.js use money.js too.** An earlier version
+of the forecast had its own Math.round(Number(x) * 100), which is float arithmetic
+on money. Amounts reach the forecast as 2dp strings or integer cents; a float is
+refused, not rounded. Medians of amounts are taken in integer cents and pick an
+observed value, never a half cent average. Rates like "per month" are computed
+in SQL as numeric.
+
+**Recent spending is the guide, not the long average.** The everyday spend rate
+defaults to the last 30 days (SPEND_WINDOW_DAYS, and a selector on the Forecast
+page). A year of history is full of one offs, an 11,000 dollar car repair, a
+renovation, and of circumstances that have since changed. The forecast reports
+the 30, 60 and 90 day rates side by side so a skew is visible. The analysis
+prompt says the same thing to Claude.
+
+**"Today" is the household's day.** src/dates.js derives every date from the
+clock in HOUSEHOLD_TIMEZONE (Australia/Perth), and db.js sets that zone on every
+Postgres connection so current_date agrees. Render and new Date() are UTC, which
+is yesterday in Perth from 4pm to midnight UTC: the pay period was wrong for a
+third of every day. Never call new Date().toISOString().slice(0, 10) for a
+calendar date; use today(), daysAgo(), daysFromNow(), addDays().
+
 **Sign convention.** Negative is money out. On a **loan** account this inverts in
 meaning: a repayment is positive, because it reduces the debt, and interest
 charged is negative. That is what makes a mortgage repayment pair as equal and

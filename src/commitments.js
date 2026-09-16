@@ -9,6 +9,7 @@
 // commitment. Synergy shows up every two months, so it is.
 import { withTransaction } from './db.js';
 import { normaliseDescription } from './matching.js';
+import { numericToCents, centsToNumeric } from './money.js';
 
 const DAY_MS = 86_400_000;
 
@@ -27,6 +28,16 @@ export function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+// The median of amounts held as integer cents. An even count takes the lower
+// of the two middle values rather than averaging them: the average of two
+// amounts can be half a cent, which is not money, and the lower middle is a
+// bill that actually happened.
+export function medianCents(cents) {
+  if (!cents.length) return 0;
+  const sorted = [...cents].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
 }
 
 // The grouping key. Banks append receipt and reference numbers that differ on
@@ -101,7 +112,7 @@ export async function detectCommitments(options = {}) {
       if (!groups.has(key)) groups.set(key, { label: row.label, entries: [] });
       groups.get(key).entries.push({
         date: String(row.txn_date).slice(0, 10),
-        amount: Number(row.amount),
+        amount_cents: numericToCents(row.amount),
         category_id: row.category_id,
       });
     }
@@ -116,8 +127,8 @@ export async function detectCommitments(options = {}) {
       // and the older figure would otherwise win for months. The median is
       // still used rather than the last value, so one unusual bill does not
       // become the forecast.
-      const recent = group.entries.slice(-6).map((entry) => entry.amount);
-      const typicalAmount = median(recent);
+      const recent = group.entries.slice(-6).map((entry) => entry.amount_cents);
+      const typicalAmount = centsToNumeric(medianCents(recent));
       // The commonest category among the occurrences.
       const categoryCounts = new Map();
       for (const entry of group.entries) {
@@ -150,7 +161,7 @@ export async function detectCommitments(options = {}) {
           commitment.match_key,
           commitment.label,
           commitment.category_id,
-          commitment.typical_amount.toFixed(2),
+          commitment.typical_amount,
           commitment.cadence_days,
           commitment.occurrences,
           commitment.regularity,

@@ -9,6 +9,8 @@
 // Only liquid accounts count. The mortgage is a debt, not a buffer, and its
 // redraw is deliberately ignored: it is money we would have to borrow back.
 import { query } from './db.js';
+import { numericToCents, centsToNumeric } from './money.js';
+import { today as householdToday, addDays } from './dates.js';
 import { periodsBetween, getPayCycle } from './buckets.js';
 import { upcomingCommitments, matchKeyFor } from './commitments.js';
 
@@ -17,14 +19,19 @@ const toDate = (value) => new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
 const iso = (date) => date.toISOString().slice(0, 10);
 
 // Money is added and subtracted as integer cents here, then rendered back to a
-// decimal string at the edge. No float arithmetic touches a balance.
-const toCents = (value) => Math.round(Number(value) * 100);
-const fromCents = (cents) => {
-  const negative = cents < 0;
-  const abs = Math.abs(cents);
-  const remainder = abs % 100;
-  return `${negative ? '-' : ''}${(abs - remainder) / 100}.${String(remainder).padStart(2, '0')}`;
-};
+// decimal string at the edge, using the same exact conversions as everywhere
+// else. An earlier version had its own Math.round(Number(x) * 100) here, which
+// is float arithmetic on money and exactly what money.js exists to prevent.
+// numericToCents refuses a float outright, so a caller passing one fails loudly
+// instead of being quietly rounded.
+const toCents = (value) => numericToCents(value ?? 0);
+const fromCents = centsToNumeric;
+
+// How far back the everyday spend rate looks. Recent behaviour predicts the
+// next month far better than a long average does: a year of history is full of
+// one offs and of circumstances that have since changed. Thirty days by
+// default, adjustable per request.
+export const DEFAULT_SPEND_WINDOW_DAYS = Number(process.env.SPEND_WINDOW_DAYS || 30);
 
 // What we can actually spend today: the latest balance of every liquid account.
 export async function liquidBalance(client = { query }) {
@@ -50,7 +57,7 @@ export async function liquidBalance(client = { query }) {
 // normalisation again in SQL meant the two drifted apart the moment one changed,
 // and a commitment that fails to match gets counted twice, once as a commitment
 // and again as everyday spending, which makes the runway look shorter than it is.
-export async function everydaySpendRate(days = 90, client = { query }) {
+export async function everydaySpendRate(days = DEFAULT_SPEND_WINDOW_DAYS, client = { query }) {
   const { rows } = await client.query(
     `select t.amount, coalesce(t.display_description, t.description) as label
        from budget_flows t
@@ -120,14 +127,22 @@ export async function forecast({
   // One off amounts applied on a date, which is how a purchase is tested
   // against the runway without changing anything stored.
   extraEvents = [],
+  // How many days of recent spending set the everyday rate.
+  window = DEFAULT_SPEND_WINDOW_DAYS,
 } = {}) {
   const cycle = await getPayCycle(client);
   const opening = await liquidBalance(client);
-  const rate = await everydaySpendRate(90, client);
+  const rate = await everydaySpendRate(window, client);
+  // The same rate over the other windows, so the page can show how sensitive
+  // the runway is to the choice.
+  const rateByWindow = {};
+  for (const span of [30, 60, 90]) {
+    rateByWindow[span] = span === window ? rate : await everydaySpendRate(span, client);
+  }
   const income = await expectedIncomeCents(client);
 
-  const today = iso(new Date());
-  const end = iso(new Date(Date.now() + days * DAY_MS));
+  const today = householdToday();
+  const end = addDays(today, days);
 
   // Paydays in the window, from the configured cycle.
   const paydays = cycle
@@ -198,7 +213,7 @@ export async function forecast({
   let lowest = { date: today, cents: balanceCents };
 
   for (let day = 0; day <= days; day++) {
-    const date = iso(new Date(Date.now() + day * DAY_MS));
+    const date = addDays(today, day);
     const events = eventsByDate.get(date) ?? [];
 
     // Day zero is today's actual balance, so nothing is applied to it.
@@ -224,6 +239,8 @@ export async function forecast({
     opening_balance: opening.total,
     liquid_accounts: opening.accounts,
     everyday_rate: rate,
+    rate_by_window: rateByWindow,
+    spend_window_days: window,
     expected_income: { amount: fromCents(income.cents), source: income.source },
     cycle,
     paydays,

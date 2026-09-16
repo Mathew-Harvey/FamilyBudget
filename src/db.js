@@ -1,6 +1,7 @@
 // One shared connection pool for the whole app. Every other module imports
 // from here so there is a single place that knows how to talk to Postgres.
 import pg from 'pg';
+import { HOUSEHOLD_TIMEZONE } from './dates.js';
 
 const { Pool, types } = pg;
 
@@ -51,9 +52,21 @@ export function createPool(connectionString) {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not set. Copy .env.example to .env and fill it in.');
   }
+  // Render's Postgres runs in UTC. Every current_date in this app means the
+  // household's calendar day, so the zone is sent as a startup parameter on
+  // every connection and the SQL never has to think about it. Startup options,
+  // rather than a query in a connect hook: a hook races the first real query
+  // and pg deprecates that. The zone name is checked before it goes into the
+  // options string, since that string is not parameterised.
+  const zone = /^[A-Za-z0-9_+\-/]+$/.test(HOUSEHOLD_TIMEZONE) ? HOUSEHOLD_TIMEZONE : 'UTC';
+  if (zone !== HOUSEHOLD_TIMEZONE) {
+    console.error(`HOUSEHOLD_TIMEZONE "${HOUSEHOLD_TIMEZONE}" is not a valid zone name, using UTC`);
+  }
+
   return new Pool({
     connectionString,
     ssl: sslConfigFor(connectionString),
+    options: `-c TimeZone=${zone}`,
     // The free Render Postgres plans cap connections, and a web service plus a
     // cron job share them. Stay modest.
     max: Number(process.env.PG_POOL_MAX || 5),

@@ -11,6 +11,7 @@ import { descriptionSimilarity, daysBetween, toDateOnly } from './matching.js';
 import { detectTransfers } from './transfers.js';
 import { categoriseAll } from './categorise.js';
 import { detectCommitments } from './commitments.js';
+import { today, daysAgo } from './dates.js';
 import { runAlerts } from './alerts.js';
 import { runPeriodicAnalysis } from './analyst.js';
 
@@ -30,7 +31,6 @@ const PENDING_MATCH_DAYS = 5;
 const PENDING_MATCH_SIMILARITY = 0.6;
 
 const isoDate = (date) => date.toISOString().slice(0, 10);
-const daysAgo = (n) => isoDate(new Date(Date.now() - n * 86_400_000));
 
 // Loans and mortgages are not spendable, so they default to not liquid.
 function defaultIsLiquid(type) {
@@ -328,7 +328,7 @@ async function windowsFor(client, accountId) {
     [accountId],
   );
   if (rows[0].count > 0) {
-    return [{ from: daysAgo(OVERLAP_DAYS), to: isoDate(new Date()) }];
+    return [{ from: daysAgo(OVERLAP_DAYS), to: today() }];
   }
 
   // First run: walk back in chunks so no single read hits the 5000 row cap.

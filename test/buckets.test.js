@@ -14,6 +14,7 @@ import {
   suggestPayCycle,
 } from '../src/buckets.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
+import { daysAgo } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
@@ -273,19 +274,19 @@ test('the pay cycle is suggested from recurring income, not from one off credits
     await pool.query(
       `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, category_id, raw)
        values ($1,$2,'posted',$3,'SALARY CREDIT FRANMARINE',$4,$5,'{}'::jsonb)`,
-      [account.id, `a${i}`, isoDaysAgo(i * 14), centsToNumeric(461100), pay.id],
+      [account.id, `a${i}`, daysAgo(i * 14), centsToNumeric(461100), pay.id],
     );
     await pool.query(
       `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, category_id, raw)
        values ($1,$2,'posted',$3,'SALARY CREDIT EQU',$4,$5,'{}'::jsonb)`,
-      [account.id, `b${i}`, isoDaysAgo(i * 14 + 7), centsToNumeric(349138), pay.id],
+      [account.id, `b${i}`, daysAgo(i * 14 + 7), centsToNumeric(349138), pay.id],
     );
   }
   // A one off refund, which must not be mistaken for a payday.
   await pool.query(
     `insert into transactions (account_id, redbark_txn_id, status, txn_date, description, amount, category_id, raw)
      values ($1,'refund','posted',$2,'SOME REFUND',$3,$4,'{}'::jsonb)`,
-    [account.id, isoDaysAgo(3), centsToNumeric(4200), pay.id],
+    [account.id, daysAgo(3), centsToNumeric(4200), pay.id],
   );
 
   const suggestion = await suggestPayCycle(pool);
@@ -294,6 +295,3 @@ test('the pay cycle is suggested from recurring income, not from one off credits
   assert.equal(suggestion.streams.length, 2, 'the refund is not a salary stream');
 });
 
-function isoDaysAgo(days) {
-  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-}

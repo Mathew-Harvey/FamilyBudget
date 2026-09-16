@@ -12,7 +12,8 @@
 //     figures it was given.
 import Anthropic from '@anthropic-ai/sdk';
 import { query, withTransaction } from './db.js';
-import { forecast } from './forecast.js';
+import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
+import { today, daysFromNow } from './dates.js';
 import { getPayCycle, currentPeriod, periodState } from './buckets.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
@@ -105,6 +106,7 @@ How the data works:
 - The runway is the projected date spendable cash reaches zero, given expected income, commitments and the everyday spend rate.
 
 How to answer:
+- Weigh the recent month most. Their circumstances changed recently, one income stopped and the other changed jobs, so a long average of past spending is a poor guide to next month. Treat a large one off from months ago as exactly that, not as a rate.
 - Be direct and specific. Use their real numbers. If something is going wrong, say so plainly in the first sentence rather than burying it.
 - Prefer a few things that matter over a long list. Three good observations beat ten weak ones.
 - Ground every claim in the snapshot. Do not invent figures, and do not guess at things the snapshot cannot tell you: say what you would need instead.
@@ -198,6 +200,23 @@ export async function buildSnapshot(client = { query }) {
     `)
   ).rows;
 
+  // The last thirty days on their own. A year of history is full of one offs
+  // and of circumstances that have changed, so the recent month is what the
+  // analysis should weigh most.
+  const lastThirtyDays = (
+    await client.query(`
+      select grp.name as group_name, cat.name as category,
+             count(*)::int as transactions, sum(-t.amount) as spent
+        from budget_flows t
+        join categories cat on cat.id = t.category_id
+        left join categories grp on grp.id = cat.parent_id
+       where t.counts and t.amount < 0 and cat.kind = 'expense'
+         and t.txn_date > current_date - 30
+       group by grp.name, cat.name
+       order by sum(-t.amount) desc
+    `)
+  ).rows;
+
   const incomeStreams = (
     await client.query(`
       select coalesce(t.display_description, t.description) as label,
@@ -232,7 +251,7 @@ export async function buildSnapshot(client = { query }) {
   ).rows[0];
 
   return {
-    as_of: new Date().toISOString().slice(0, 10),
+    as_of: today(),
     pay_cycle: cycle,
     position: {
       spendable_cash: projection.opening_balance,
@@ -285,6 +304,7 @@ export async function buildSnapshot(client = { query }) {
           })),
         }
       : null,
+    spending_last_30_days_by_category: lastThirtyDays,
     spending_by_category_recent_months: categorySpend,
     largest_recent_outgoings: largest.map((row) => ({ ...row, label: scrubLabel(row.label) })),
     uncategorised_last_90_days: uncategorised,
@@ -488,43 +508,48 @@ export async function acceptProposal(proposal, client = { query }) {
 // What could realistically be cut, ranked by what it is worth a month. The
 // planner needs this to answer "how do we afford X" with something other than
 // "spend less".
-export async function trimmableSpend(client = { query }) {
+export async function trimmableSpend(client = { query }, { days = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
+  // per_month is worked out in SQL as numeric, so the ranking is exact and no
+  // float touches an amount on the way to the page or the model.
   const { rows: recurring } = await client.query(
     `select c.label, c.typical_amount, c.cadence_days,
-            cat.name as category, grp.name as group_name
+            cat.name as category, grp.name as group_name,
+            round((-c.typical_amount) * 30.44 / greatest(c.cadence_days, 1), 2) as per_month
        from commitments c
        left join categories cat on cat.id = c.category_id
        left join categories grp on grp.id = cat.parent_id
       where c.active
-      order by (-c.typical_amount) / greatest(c.cadence_days, 1) desc
+      order by per_month desc
       limit 40`,
   );
 
-  // Everyday spending by category, which is where the discretionary money goes
-  // even when no single line looks large.
+  // Everyday spending by category over the same recent window the forecast
+  // uses, which is where the discretionary money goes even when no single line
+  // looks large.
   const { rows: byCategory } = await client.query(
     `select grp.name as group_name, cat.name as category,
             count(*)::int as transactions,
-            sum(-t.amount) as spent_90_days,
-            sum(-t.amount) / 3 as per_month
+            sum(-t.amount) as spent_in_window,
+            round(sum(-t.amount) * 30.44 / $1, 2) as per_month
        from budget_flows t
        join categories cat on cat.id = t.category_id
        left join categories grp on grp.id = cat.parent_id
       where t.counts and t.amount < 0 and cat.kind = 'expense'
-        and t.txn_date >= current_date - 90
+        and t.txn_date > current_date - $1::integer
       group by grp.name, cat.name
       order by sum(-t.amount) desc`,
+    [days],
   );
 
   return {
+    window_days: days,
     recurring: recurring.map((row) => ({
       label: scrubLabel(row.label),
       amount: row.typical_amount,
       cadence_days: row.cadence_days,
       category: row.category,
       group: row.group_name,
-      // Comparable across cadences, which is the only fair way to rank them.
-      per_month: (Math.abs(Number(row.typical_amount)) * (30.44 / row.cadence_days)).toFixed(2),
+      per_month: row.per_month,
     })),
     by_category: byCategory,
   };
@@ -584,13 +609,14 @@ export async function afford({ amount, description, when = null, client = { quer
   const cost = Math.abs(Number(amount));
   if (!Number.isFinite(cost) || cost <= 0) throw new Error('An amount is required.');
 
-  const date = when || new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const date = when || daysFromNow(14);
+  const costText = cost.toFixed(2); // input normalisation, once, at the boundary
 
   const baseline = await forecast({ days: 365, client });
   const scenario = await forecast({
     days: 365,
     client,
-    extraEvents: [{ date, label: description || 'One off purchase', amount: -cost }],
+    extraEvents: [{ date, label: description || 'One off purchase', amount: `-${costText}` }],
   });
   // The same question without the income that is only hoped for, which is the
   // honest version of the answer.
@@ -598,7 +624,7 @@ export async function afford({ amount, description, when = null, client = { quer
     days: 365,
     client,
     includeConfidence: ['confirmed'],
-    extraEvents: [{ date, label: description || 'One off purchase', amount: -cost }],
+    extraEvents: [{ date, label: description || 'One off purchase', amount: `-${costText}` }],
   });
 
   const { rows: assets } = await client.query(
@@ -610,7 +636,7 @@ export async function afford({ amount, description, when = null, client = { quer
   const record = await ask({
     snapshot: {
       ...snapshot,
-      purchase: { description: description || 'a one off purchase', amount: cost.toFixed(2), planned_for: date },
+      purchase: { description: description || 'a one off purchase', amount: costText, planned_for: date },
       runway_now_days: baseline.runway_days,
       runway_if_bought_days: scenario.runway_days,
       runway_if_bought_confirmed_income_only_days: confirmedOnly.runway_days,
@@ -618,7 +644,7 @@ export async function afford({ amount, description, when = null, client = { quer
       assets_that_could_be_sold: assets,
       what_could_be_trimmed: trims,
     },
-    question: description ? `Can we afford ${description} at $${cost.toFixed(2)}?` : null,
+    question: description ? `Can we afford ${description} at $${costText}?` : null,
     kind: 'afford',
     effort: settings?.effort ?? 'high',
     schema: AFFORD_SCHEMA,
