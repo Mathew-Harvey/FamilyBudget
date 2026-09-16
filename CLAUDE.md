@@ -9,14 +9,8 @@ A private household budgeting app for two people, Mat and Skye. It pulls bank
 data from Redbark, an Australian open banking aggregator, and our Postgres is
 the system of record: Redbark stores nothing on its side.
 
-Built in stages. **Stage 1 is complete**: ingest, dedupe, pending to posted
-matching, transfer detection and a verification UI. Later stages are Stage 2
-categories and rules, Stage 3 buckets and payday allocation, Stage 4 forecast
-and runway, Stage 5 email alerts.
-
-Do not build ahead. The schema leaves room for later stages, for example the
-nullable `category_id` on `transactions`, but nothing beyond the current stage
-should be written.
+**All five stages are built**: ingest and transfer detection, categories and
+rules, buckets and payday allocation, forecast and runway, email alerts.
 
 ## Engineering principles, non negotiable
 
@@ -38,22 +32,29 @@ should be written.
 
 Five runtime dependencies: `express`, `pg`, `express-session`,
 `connect-pg-simple`, `bcryptjs`. No development dependencies. Node 22 or newer,
-which gives `--env-file` and the test runner without any package.
+which gives `--env-file` and the test runner without any package. Email is sent
+with `fetch` against a provider's JSON API, so alerts add no package.
 
 ```
 migrations/  numbered .sql, applied in order
 scripts/     migrate.js, discover.js, create-user.js
-src/         db.js        one shared pg pool, SSL and type parsers
-             redbark.js   every Redbark API call, isolated here
-             sync.js      the sync engine, npm run sync
-             transfers.js transfer detection and the pair actions
-             matching.js  description similarity and date helpers
-             money.js     integer cents, exact decimals
-             auth.js      sessions, the gate, login
-             server.js    the Express app
-             routes/      accounts, transactions, transfers, sync
-public/      login, accounts, transactions, transfers, sync, plus app.js and
-             styles.css
+src/         db.js          one shared pg pool, SSL and type parsers
+             redbark.js     every Redbark API call, isolated here
+             sync.js        the sync engine, npm run sync
+             transfers.js   transfer detection and the pair actions
+             matching.js    description similarity and date helpers
+             money.js       integer cents, exact decimals
+             categorise.js  rules and the category precedence
+             buckets.js     pay periods and bucket maths
+             commitments.js finds the outgoings that repeat
+             forecast.js    the projection and the runway
+             alerts.js      what is worth saying, and when
+             email.js       sending, with no dependency
+             auth.js        sessions, the gate, login
+             server.js      the Express app
+             routes/        one file per area
+public/      login, accounts, transactions, categories, rules, buckets,
+             forecast, transfers, sync, alerts, plus app.js and styles.css
 test/        node:test suites and redacted fixtures
 ```
 
@@ -114,6 +115,31 @@ Things that will bite you:
   `txn_fk_bank_tx_s_`. They are stable across calls but must not be assumed
   stable across a transaction posting.
 
+## More rules that are easy to break
+
+**`budget_flows` is the one definition of what counts.** A transfer between two
+accounts we own is not spending, except when money leaves a spendable account
+for a loan or mortgage: that really does leave our cash. Only the side leaving
+the liquid account counts. Use this view rather than filtering `is_transfer` by
+hand, or the mortgage becomes invisible to the budget.
+
+**Category precedence is manual, then rule, then provider.** Recategorising must
+never overwrite a category someone set by hand. `categoriseAll` compares against
+what is already stored, so every field it writes must also be selected, or every
+row looks changed on every run.
+
+**Express matches routes in order.** Specific paths like `/recategorise` and
+`/provider-map` must be registered before `/:id`, or `/:id` swallows them.
+
+**SQL inside a JavaScript template literal.** `\s` is not a valid escape there
+and silently becomes a plain `s`, so a whitespace class quietly turns into "runs
+of the letter s". Use POSIX classes like `[[:space:]]` in SQL strings.
+
+**Two normalisations must agree.** `matchKeyFor` in JavaScript and the
+normalising expression in `everydaySpendRate` have to produce the same text, or
+commitments fail to match and get counted twice: once as a commitment and again
+as everyday spending, which makes the runway too short.
+
 ## Design decisions worth keeping
 
 - **Pending resolution updates the row in place** rather than deleting and
@@ -129,6 +155,21 @@ Things that will bite you:
   Transfers page.
 - **A batch is collapsed by id before writing**, because a transaction can come
   back in more than one backfill window.
+- **The pay cycle is configured, not inferred.** History is suggested, but the
+  figure someone sets always wins, because a job change makes the past a bad
+  guide.
+- **Carry over starts from a bucket's first allocation**, so spending from
+  before the bucket existed does not roll in as a debt.
+- **Changing the cadence removes periods of the old shape**, or two periods
+  contain today and the wrong one wins.
+- **Commitment amounts come from recent occurrences**, so a rate rise is picked
+  up rather than averaged away, and reference numbers are dropped from the match
+  key or every occurrence lands in its own group.
+- **Only liquid accounts count as spendable cash.** The mortgage redraw is
+  money we would have to borrow back.
+- **Alerts carry a dedupe key** that changes only when the situation
+  meaningfully changes, and everything considered is logged even when it is not
+  sent.
 
 ## Deployment
 

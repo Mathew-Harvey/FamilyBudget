@@ -71,6 +71,8 @@ export function renderNav(current) {
     ['/categories', 'Categories'],
     ['/rules', 'Rules'],
     ['/buckets', 'Buckets'],
+    ['/forecast', 'Forecast'],
+    ['/alerts', 'Alerts'],
     ['/transfers', 'Transfers'],
     ['/sync', 'Sync'],
   ];

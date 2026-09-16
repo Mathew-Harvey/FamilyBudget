@@ -10,6 +10,8 @@ import { centsToNumeric, numericToCents, redbarkAmountToCents } from './money.js
 import { descriptionSimilarity, daysBetween, toDateOnly } from './matching.js';
 import { detectTransfers } from './transfers.js';
 import { categoriseAll } from './categorise.js';
+import { detectCommitments } from './commitments.js';
+import { runAlerts } from './alerts.js';
 
 // How far back to re-read on a routine run, so late posting and edited rows are
 // caught.
@@ -357,6 +359,8 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     pending_expired: 0,
     transfers_detected: 0,
     txns_categorised: 0,
+    commitments_found: 0,
+    alerts_sent: 0,
   };
   const failures = [];
 
@@ -425,12 +429,28 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     totals.txns_categorised = await categoriseAll({ pool: dbPool });
     log(`categories: ${totals.txns_categorised} transactions categorised`);
 
+    // Commitments feed the forecast, so they are refreshed once categories are
+    // settled.
+    totals.commitments_found = await detectCommitments({ pool: dbPool });
+    log(`commitments: ${totals.commitments_found} recurring outgoings`);
+
+    // Alerts go last, so they see everything this run changed. A failure to
+    // send must never fail the sync.
+    try {
+      const alerted = await runAlerts({ pool: dbPool });
+      totals.alerts_sent = alerted.sent;
+      log(`alerts: ${alerted.sent} sent of ${alerted.considered} considered`);
+    } catch (err) {
+      failures.push(`alerts: ${err.message}`);
+    }
+
     const status = failures.length ? (totals.accounts_synced ? 'partial' : 'failed') : 'success';
     await dbPool.query(
       `update sync_runs set
          finished_at = now(), status = $2, accounts_synced = $3, txns_inserted = $4,
          txns_updated = $5, pending_resolved = $6, pending_expired = $7,
-         transfers_detected = $8, txns_categorised = $9, error_message = $10
+         transfers_detected = $8, txns_categorised = $9, commitments_found = $10,
+         alerts_sent = $11, error_message = $12
        where id = $1`,
       [
         runId,
@@ -442,6 +462,8 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
         totals.pending_expired,
         totals.transfers_detected,
         totals.txns_categorised,
+        totals.commitments_found,
+        totals.alerts_sent,
         failures.length ? failures.join('\n') : null,
       ],
     );

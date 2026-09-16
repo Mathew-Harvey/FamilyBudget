@@ -1,13 +1,18 @@
 # FamilyBudget
 
-A private household budgeting app for two people. Stage 1 pulls our bank data
-from Redbark, stores it in Postgres, removes duplicates, matches pending
-transactions to their posted versions, detects transfers between our own
-accounts, and gives us a UI to check it all against our banking apps.
+A private household budgeting app for two people. It pulls our bank data from
+Redbark, stores it in Postgres, removes duplicates, matches pending transactions
+to their posted versions, detects transfers between our own accounts,
+categorises spending, runs zero based buckets each pay period, forecasts the
+cash runway, and emails us when something needs attention.
 
-Later stages will add categories and rules, zero based buckets per pay period,
-a cash runway forecast and email alerts. The schema has room for them, but
-nothing beyond Stage 1 is built.
+All five stages are built:
+
+1. Ingest, dedupe, pending to posted matching, transfer detection, verification UI
+2. Categories and rules
+3. Buckets and payday allocation
+4. Forecast and runway
+5. Email alerts
 
 ## Stack
 
@@ -17,17 +22,31 @@ Express app. No framework, no build step, no bundler. Tests use the built in
 `node:test` runner.
 
 Five runtime dependencies: `express`, `pg`, `express-session`,
-`connect-pg-simple`, `bcryptjs`. No development dependencies.
+`connect-pg-simple`, `bcryptjs`. No development dependencies. Email is sent with
+`fetch` against a provider's JSON API, so alerts add no package at all.
 
 ## Layout
 
 ```
-migrations/     numbered .sql files, applied in order by scripts/migrate.js
-scripts/        migrate.js, discover.js, create-user.js
-src/            db.js, redbark.js, sync.js, transfers.js, matching.js,
-                money.js, auth.js, server.js, routes/
-public/         the five pages, plus styles.css and app.js
-test/           node:test suites and redacted fixtures
+migrations/  numbered .sql files, applied in order by scripts/migrate.js
+scripts/     migrate.js, discover.js, create-user.js
+src/         db.js         one shared pg pool, SSL and type parsers
+             redbark.js    every Redbark API call, isolated here
+             sync.js       the sync engine, npm run sync
+             transfers.js  transfer detection and the pair actions
+             matching.js   description similarity and date helpers
+             money.js      integer cents, exact decimals
+             categorise.js rules and the category precedence
+             buckets.js    pay periods and bucket maths
+             commitments.js  finds the outgoings that repeat
+             forecast.js   the projection and the runway
+             alerts.js     what is worth saying, and when
+             email.js      sending, with no dependency
+             auth.js       sessions, the gate, login
+             server.js     the Express app
+             routes/       one file per area
+public/      eight pages, plus styles.css and app.js
+test/        node:test suites and redacted fixtures
 ```
 
 ## Local setup
@@ -51,6 +70,9 @@ Fill in `.env`. It is gitignored and must never be committed.
 | `REDBARK_API_VERSION` | `2026-10-01.wattle`. Sent on every request, which the API requires. |
 | `SESSION_SECRET` | A long random string. `node -e "console.log(crypto.randomUUID())"` |
 | `NODE_ENV` | `development` locally, `production` on Render. |
+| `EMAIL_API_URL` | Optional. Defaults to Resend's endpoint. |
+| `EMAIL_API_KEY` | Optional. Alerts stay off until this and `ALERT_FROM` are set. |
+| `ALERT_FROM` | Optional. The address alerts are sent from. |
 
 Then:
 
@@ -64,6 +86,11 @@ npm start             # http://localhost:3000
 `npm run discover` prints the shape of what Redbark returns and answers the
 questions the parsers depend on. `npm run discover -- --fixtures` refreshes the
 redacted test fixtures.
+
+Then, in the app: set each account's role and whether it is spendable on the
+Accounts page, set the pay cycle on Buckets, and create buckets for the jobs
+your money has. Categories and rules are on their own pages, the runway is on
+Forecast, and email alerts are set up on Alerts.
 
 ### The test database
 
@@ -126,6 +153,8 @@ Environment variables:
 | `REDBARK_API_VERSION` | `2026-10-01.wattle` |
 | `SESSION_SECRET` | a long random string |
 | `NODE_ENV` | `production` |
+| `EMAIL_API_KEY` | your provider's key, if you want alerts |
+| `ALERT_FROM` | the address alerts come from |
 
 Do **not** set `TEST_DATABASE_URL` on Render. It is a local only variable.
 
@@ -153,6 +182,19 @@ npm run migrate
 
 Render does not run migrations for you. Do this before the first deploy, and
 again after any new file lands in `migrations/`.
+
+## What a sync does, in order
+
+1. Refreshes the account list and upserts it.
+2. Reads transactions for each account and upserts them.
+3. Snapshots today's balance for every account.
+4. Pairs transfers.
+5. Categorises everything not set by hand.
+6. Refreshes the recurring commitments.
+7. Evaluates alerts and sends what is new.
+
+Every step records its counts on the `sync_runs` row, so the Sync page shows
+what actually happened.
 
 ## How the sync behaves
 
@@ -198,6 +240,64 @@ A transaction whose counterpart is outside our connected accounts, such as a
 repayment to the ING personal loan, is simply left unpaired. Later stages will
 treat it as a commitment.
 
+## Categories and rules
+
+Precedence, strongest first: a category set by hand, then the first matching
+rule, then the category the bank supplied. Recategorising only ever touches rows
+whose category came from a rule or the bank, so a manual choice is never
+overwritten. Clearing it by hand hands the row back to the rules.
+
+Rules are ordered and the first match wins. They match on text in any field or
+one named field, on account, direction and an amount range, and they can set a
+category, rename a transaction for display without touching the bank's
+description, add a note, or ignore it.
+
+## Buckets
+
+The pay cycle is configured rather than inferred: how often you are paid, one
+date you know you were paid, and optionally what to expect each time. The app
+suggests a cycle from your history, but history is a poor guide after a job
+change, so the figure you set always wins.
+
+A bucket covers one or more categories and has a target for each period. A
+category belongs to at most one bucket, so spending is never counted twice.
+Leftovers either roll forward or reset, per bucket. Carry over starts from the
+period a bucket was first allocated to, so spending from before the bucket
+existed does not roll in as a debt.
+
+## Forecast and runway
+
+Spendable cash is projected forward day by day from three things: expected
+income on each payday, the recurring commitments, and an everyday spend rate
+taken from the last 90 days with the commitments removed so nothing is counted
+twice. The runway is the first day the projection drops below zero, or below a
+buffer you choose.
+
+Only liquid accounts count. The mortgage redraw is deliberately ignored: it is
+money we would have to borrow back, not money we have.
+
+Commitments are found by looking for a description that repeats at a regular
+interval. Regularity is what separates a bill from ordinary shopping: the
+supermarket appears forty times a year at no particular spacing, the power bill
+appears every two months. Their typical amount comes from the most recent
+occurrences, so a rate rise is picked up rather than being averaged away. You
+can switch any of them off, or add one by hand that history has not shown yet.
+
+## Alerts
+
+Checked at the end of every sync: a short runway, a bucket over budget, an
+unusually large transaction, a failed sync, and things piling up for review.
+
+Nothing is sent until an address is set and alerts are switched on. Each alert
+carries a dedupe key that only changes when the situation meaningfully changes,
+so a standing problem is reported once rather than twice a day, and a worsening
+one is reported again. Everything considered is written to `alert_log` whether
+or not it was sent, so you can see what would have gone out.
+
+Email goes through any provider that accepts a JSON POST. The default url is
+Resend; set `EMAIL_API_URL` for a different one, plus `EMAIL_API_KEY` and
+`ALERT_FROM`.
+
 ## Security
 
 - The Redbark key is read from `process.env.REDBARK_API_KEY` only. It is never
@@ -209,7 +309,10 @@ treat it as a commitment.
   `secure` when `NODE_ENV=production`.
 - The login route is rate limited to 10 attempts per IP per 15 minutes.
 - Errors are logged without the request body, so transaction descriptions and
-  amounts stay out of the logs.
+  amounts stay out of the logs. The email provider's own error text is not kept
+  either, only the status it returned, because it can echo back what we sent.
+- The email API key is never sent to the browser. The Alerts page is told only
+  whether one is configured.
 - Test fixtures are redacted: descriptions, amounts, merchants, account numbers
   and names, ids and institutions are replaced, and every date is shifted by one
   constant so no real date is published. Structure, field names, id formats,
