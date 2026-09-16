@@ -9,6 +9,7 @@ import { createClient } from './redbark.js';
 import { centsToNumeric, numericToCents, redbarkAmountToCents } from './money.js';
 import { descriptionSimilarity, daysBetween, toDateOnly } from './matching.js';
 import { detectTransfers } from './transfers.js';
+import { categoriseAll } from './categorise.js';
 
 // How far back to re-read on a routine run, so late posting and edited rows are
 // caught.
@@ -355,6 +356,7 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     pending_resolved: 0,
     pending_expired: 0,
     transfers_detected: 0,
+    txns_categorised: 0,
   };
   const failures = [];
 
@@ -419,12 +421,16 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
     totals.transfers_detected = await detectTransfers({ pool: dbPool });
     log(`transfers: ${totals.transfers_detected} auto paired`);
 
+    // Categorising runs last, over everything that is not manually set.
+    totals.txns_categorised = await categoriseAll({ pool: dbPool });
+    log(`categories: ${totals.txns_categorised} transactions categorised`);
+
     const status = failures.length ? (totals.accounts_synced ? 'partial' : 'failed') : 'success';
     await dbPool.query(
       `update sync_runs set
          finished_at = now(), status = $2, accounts_synced = $3, txns_inserted = $4,
          txns_updated = $5, pending_resolved = $6, pending_expired = $7,
-         transfers_detected = $8, error_message = $9
+         transfers_detected = $8, txns_categorised = $9, error_message = $10
        where id = $1`,
       [
         runId,
@@ -435,6 +441,7 @@ export async function runSync({ client: redbark, pool, log = console.log } = {})
         totals.pending_resolved,
         totals.pending_expired,
         totals.transfers_detected,
+        totals.txns_categorised,
         failures.length ? failures.join('\n') : null,
       ],
     );

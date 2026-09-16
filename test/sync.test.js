@@ -140,8 +140,11 @@ test('an in place pending resolution keeps the Stage 2 category and any transfer
     redbarkTxn({ id: 'txn_p', status: 'pending', description: 'TELSTRA', amount: { amount: -27463, currency: 'aud' } }),
   ]);
 
-  // Stand in for what Stage 2 will write.
-  const categoryId = '11111111-2222-3333-4444-555555555555';
+  // Stage 2 writes this, and it must survive the row being resolved.
+  const { rows: made } = await pool.query(
+    "insert into categories (name, kind) values ('Utilities for this test', 'expense') returning id",
+  );
+  const categoryId = made[0].id;
   await pool.query('update transactions set category_id = $1', [categoryId]);
 
   await persistTransactions(pool, account.id, [

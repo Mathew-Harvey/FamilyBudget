@@ -1,6 +1,7 @@
 // Transactions, filterable by account, date range, status and transfer flag.
 import { Router } from 'express';
 import { query } from '../db.js';
+import { setCategoryManually } from '../categorise.js';
 
 export const transactionsRouter = Router();
 
@@ -22,6 +23,8 @@ transactionsRouter.get('/', async (req, res, next) => {
     if (req.query.transfer === 'true') conditions.push('t.is_transfer');
     if (req.query.transfer === 'false') conditions.push('not t.is_transfer');
     if (req.query.search) add("t.description ilike '%' || ? || '%'", req.query.search);
+    if (req.query.category_id) add('t.category_id = ?', req.query.category_id);
+    if (req.query.uncategorised === 'true') conditions.push('t.category_id is null');
 
     const where = conditions.length ? `where ${conditions.join(' and ')}` : '';
     const limit = Math.min(Number(req.query.limit) || 200, MAX_LIMIT);
@@ -31,11 +34,15 @@ transactionsRouter.get('/', async (req, res, next) => {
       `select t.id, t.txn_date, t.posted_date, t.description, t.amount, t.status,
               t.is_transfer, t.transfer_pair_id, t.transfer_confidence,
               t.merchant_name, t.provider_category, t.reference,
+              t.category_id, t.category_source, t.display_description, t.note,
+              cat.name as category_name, grp.name as category_group,
               a.id as account_id, a.bank, a.name as account_name, a.masked_number,
               pa.name as pair_account_name, pa.masked_number as pair_masked_number,
               p.txn_date as pair_date, p.amount as pair_amount
          from transactions t
          join accounts a on a.id = t.account_id
+         left join categories cat on cat.id = t.category_id
+         left join categories grp on grp.id = cat.parent_id
          left join transactions p on p.id = t.transfer_pair_id
          left join accounts pa on pa.id = p.account_id
          ${where}
@@ -51,6 +58,17 @@ transactionsRouter.get('/', async (req, res, next) => {
     );
 
     res.json({ transactions: rows, total: totals.rows[0].count, net: totals.rows[0].net, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Setting a category by hand pins it, so later rule runs leave it alone.
+transactionsRouter.post('/:id/category', async (req, res, next) => {
+  try {
+    const updated = await setCategoryManually(req.params.id, req.body?.category_id ?? null);
+    if (!updated) return res.status(404).json({ error: 'No such transaction' });
+    res.json({ transaction: updated });
   } catch (err) {
     next(err);
   }

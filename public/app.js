@@ -68,6 +68,8 @@ export function renderNav(current) {
   const pages = [
     ['/accounts', 'Accounts'],
     ['/transactions', 'Transactions'],
+    ['/categories', 'Categories'],
+    ['/rules', 'Rules'],
     ['/transfers', 'Transfers'],
     ['/sync', 'Sync'],
   ];

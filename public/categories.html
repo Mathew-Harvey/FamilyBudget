@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Categories</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h2>Categories</h2>
+  <p class="muted">Groups hold categories. Rules and the bank's own labels both put transactions into these.</p>
+  <div id="notice"></div>
+  <div class="card row">
+    <button class="primary" id="recategorise">Recategorise everything</button>
+    <span class="muted" id="state"></span>
+  </div>
+  <div id="tree"><p class="muted">Loading...</p></div>
+
+  <h2>What the banks call things</h2>
+  <p class="muted">Every transaction starts here, unless a rule or a manual choice says otherwise.</p>
+  <div class="card"><div id="provider"></div></div>
+</main>
+<script type="module" src="/categories.js"></script>
+</body>
+</html>

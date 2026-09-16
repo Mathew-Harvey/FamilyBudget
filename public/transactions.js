@@ -4,6 +4,7 @@ renderNav('/transactions');
 
 const PAGE = 100;
 let offset = 0;
+let groups = [];
 
 function filters() {
   const params = new URLSearchParams();
@@ -17,6 +18,7 @@ function filters() {
   put('status', 'status');
   put('transfer', 'transfer');
   put('search', 'search');
+  put('category_id', 'category');
   return params;
 }
 
@@ -36,9 +38,48 @@ function row(txn) {
     );
   }
 
+  // Changing this pins the category, so rules leave the row alone afterwards.
+  const categorySelect = el(
+    'select',
+    {
+      class: 'small',
+      onChange: async (event) => {
+        try {
+          await api(`/api/transactions/${txn.id}/category`, {
+            method: 'POST',
+            body: { category_id: event.target.value || null },
+          });
+          showError('');
+        } catch (err) {
+          showError(err.message);
+        }
+      },
+    },
+    [
+      el('option', { value: '', text: 'Uncategorised', selected: !txn.category_id }),
+      ...groups.map((group) =>
+        el(
+          'optgroup',
+          { label: group.name },
+          group.categories.map((category) =>
+            el('option', {
+              value: category.id,
+              text: category.name,
+              selected: category.id === txn.category_id,
+            }),
+          ),
+        ),
+      ),
+    ],
+  );
+  if (txn.category_source === 'manual') badges.push(el('span', { class: 'badge', text: 'set by hand' }));
+
   return el('tr', { id: txn.id }, [
     el('td', { 'data-col': 'description' }, [
-      el('div', { class: 'truncate', text: txn.description || '(no description)' }),
+      el('div', { class: 'truncate', text: txn.display_description || txn.description || '(no description)' }),
+      txn.display_description
+        ? el('div', { class: 'muted truncate', text: txn.description })
+        : null,
     ]),
     el('td', { 'data-col': 'amount', class: 'right' }, [
       el('span', { class: `amount ${amountClass(txn.amount)}`, text: formatAmount(txn.amount) }),
@@ -48,6 +89,7 @@ function row(txn) {
         `${formatDate(txn.txn_date)}, ${txn.bank} ${txn.masked_number || ''} `,
       ]),
       ...badges,
+      categorySelect,
     ]),
   ]);
 }
@@ -95,14 +137,26 @@ async function load(reset = false) {
 }
 
 try {
-  const { accounts } = await api('/api/accounts');
+  const [{ accounts }, categoryData] = await Promise.all([api('/api/accounts'), api('/api/categories')]);
+  groups = categoryData.groups;
+
+  const categoryFilter = document.getElementById('category');
+  categoryFilter.append(el('option', { value: '', text: 'All' }));
+  for (const group of groups) {
+    const optgroup = el('optgroup', { label: group.name });
+    for (const category of group.categories) {
+      optgroup.append(el('option', { value: category.id, text: category.name }));
+    }
+    categoryFilter.append(optgroup);
+  }
+
   const select = document.getElementById('account');
   for (const account of accounts) {
     select.append(el('option', { value: account.id, text: `${account.bank} ${account.masked_number || ''} ${account.name}` }));
   }
   // Let another page link straight to a filtered view.
   const incoming = new URLSearchParams(window.location.search);
-  for (const [key, id] of [['account_id', 'account'], ['status', 'status'], ['transfer', 'transfer']]) {
+  for (const [key, id] of [['account_id', 'account'], ['status', 'status'], ['transfer', 'transfer'], ['category_id', 'category']]) {
     if (incoming.get(key)) document.getElementById(id).value = incoming.get(key);
   }
 } catch (err) {
@@ -112,7 +166,7 @@ try {
 document.getElementById('apply').addEventListener('click', () => load(true));
 document.getElementById('more').addEventListener('click', () => load(false));
 document.getElementById('reset').addEventListener('click', () => {
-  for (const id of ['account', 'from', 'to', 'status', 'transfer', 'search']) {
+  for (const id of ['account', 'from', 'to', 'status', 'transfer', 'search', 'category']) {
     document.getElementById(id).value = '';
   }
   load(true);

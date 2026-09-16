@@ -9,6 +9,8 @@ import { accountsRouter } from './routes/accounts.js';
 import { transactionsRouter } from './routes/transactions.js';
 import { transfersRouter } from './routes/transfers.js';
 import { syncRouter } from './routes/sync.js';
+import { categoriesRouter } from './routes/categories.js';
+import { rulesRouter } from './routes/rules.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -58,6 +60,8 @@ export function createApp() {
   app.use('/api/transactions', transactionsRouter);
   app.use('/api/transfers', transfersRouter);
   app.use('/api/sync', syncRouter);
+  app.use('/api/categories', categoriesRouter);
+  app.use('/api/rules', rulesRouter);
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'accounts.html')));
