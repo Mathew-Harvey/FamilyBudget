@@ -1,0 +1,88 @@
+# Render Blueprint. Create everything at once from the dashboard:
+#   New > Blueprint > pick this repo.
+#
+# It creates the database, the web service and the twice daily sync, wires the
+# database url into both, and generates the session secret. The secrets it
+# cannot know are marked sync: false, and Render asks for them once.
+#
+# Two things it deliberately does not do, because both are destructive if
+# repeated blindly:
+#   - run the migrations. Render does not run them for you and this file does
+#     not sneak them into the build command, where a failed deploy would leave
+#     a half applied schema. Run npm run migrate yourself against the External
+#     url, as README.md sets out.
+#   - create a login. There is no sign up page on purpose. Run npm run create-user.
+databases:
+  - name: familybudget-db
+    databaseName: familybudget
+    plan: basic-256mb
+    postgresMajorVersion: "18"
+    region: singapore
+
+services:
+  - type: web
+    name: familybudget
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: familybudget-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      # Render runs in UTC. Perth is eight hours ahead, which means that from
+      # 4pm UTC "today" is already tomorrow here: without this the pay period
+      # and the runway are a day out for a third of every day.
+      - key: HOUSEHOLD_TIMEZONE
+        value: Australia/Perth
+      - key: REDBARK_API_VERSION
+        value: 2026-10-01.wattle
+      - key: REDBARK_API_KEY
+        sync: false
+      # Optional. Alerts go unsent without them, nothing else changes.
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: ALERT_FROM
+        sync: false
+      # Optional. The analysis stays switched off without it.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - type: cron
+    name: familybudget-sync
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: main
+    buildCommand: npm ci
+    # 6am and 6pm in Perth. Render schedules are UTC and Perth is UTC+8 all
+    # year, with no daylight saving to shift it.
+    schedule: "0 10,22 * * *"
+    startCommand: npm run sync
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: familybudget-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: HOUSEHOLD_TIMEZONE
+        value: Australia/Perth
+      - key: REDBARK_API_VERSION
+        value: 2026-10-01.wattle
+      - key: REDBARK_API_KEY
+        sync: false
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: ALERT_FROM
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

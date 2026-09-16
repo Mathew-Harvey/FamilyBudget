@@ -128,6 +128,13 @@ Run them with `npm test`.
 
 Three services, all in the same region, so the private network is available.
 
+`render.yaml` in the repo root creates all three at once: in the Render
+dashboard choose **New > Blueprint** and point it at this repo. It wires the
+database url into both services and generates the session secret; Render then
+asks once for the keys it cannot know. The manual version is below, and the two
+steps after it are needed either way, because neither is something a deploy
+should do by itself.
+
 ### 1. Postgres
 
 Create a **Render Postgres** instance on **PostgreSQL 18**. No extensions are
@@ -165,6 +172,16 @@ Environment variables:
 | `EMAIL_API_KEY` | your provider's key, if you want alerts |
 | `ALERT_FROM` | the address alerts come from |
 | `ANTHROPIC_API_KEY` | your Anthropic key, if you want the analysis |
+| `HOUSEHOLD_TIMEZONE` | `Australia/Perth` |
+
+`HOUSEHOLD_TIMEZONE` is not optional in practice. Render runs in UTC and Perth
+is eight hours ahead, so from 4pm UTC "today" is already tomorrow here. Without
+it the pay period and the runway are a day out for a third of every day. It
+defaults to `Australia/Perth` in code, but set it explicitly so a move is one
+variable rather than a code change.
+
+`SPEND_WINDOW_DAYS` is optional and defaults to 120. `scripts/backtest.js`
+measures that choice rather than assuming it, so change it only with a reason.
 
 Do **not** set `TEST_DATABASE_URL` on Render. It is a local only variable.
 
@@ -199,6 +216,44 @@ Render dashboard. It runs in a single transaction, so a failure leaves the
 database untouched, and it records each migration so a later `npm run migrate`
 sees the work as done. Regenerate it with `npm run bootstrap-sql` after adding a
 migration.
+
+### Creating the first login
+
+There is no sign up page, on purpose, so a fresh deployment has nobody who can
+log in. From your own machine, with `DATABASE_URL` pointing at the **External**
+url:
+
+```bash
+npm run create-user
+```
+
+It asks for an email and a password, hashes the password with bcrypt and writes
+one row. Run it once for each of you. It is the only way in, which is the point.
+
+### Checking the deployment
+
+```bash
+curl https://your-service.onrender.com/healthz   # {"ok":true}
+npm run reconcile                                 # against the External url
+```
+
+`npm run reconcile` is the one worth running after the first sync. It checks the
+real data rather than the code: that every transaction lands in exactly one
+bucket and the buckets sum to the raw total, that money moved between your own
+accounts nets to zero, that refunds cancel their charges exactly, and that the
+headline agrees with what actually left the account. If something about the
+deployment is wrong, it says which figure and by how much.
+
+### The order it has to happen in
+
+1. Create the services, from `render.yaml` or by hand.
+2. Set `REDBARK_API_KEY`, and the email and Anthropic keys if you want those.
+3. Run `npm run migrate` from your machine against the **External** url. The web
+   service will not start cleanly against an empty database.
+4. Run `npm run create-user`, or there is nobody to log in as.
+5. Trigger the cron job once by hand rather than waiting for 6am. The first run
+   backfills about seven years and takes a while; later runs are quick.
+6. Run `npm run reconcile`.
 
 ## What a sync does, in order
 
