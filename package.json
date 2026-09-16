@@ -13,7 +13,8 @@
     "sync": "node --env-file-if-exists=.env src/sync.js",
     "discover": "node --env-file-if-exists=.env scripts/discover.js",
     "create-user": "node --env-file-if-exists=.env scripts/create-user.js",
-    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/*.test.js\""
+    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/*.test.js\"",
+    "bootstrap-sql": "bash scripts/build-bootstrap-sql.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

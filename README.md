@@ -191,6 +191,13 @@ npm run migrate
 Render does not run migrations for you. Do this before the first deploy, and
 again after any new file lands in `migrations/`.
 
+If you would rather not run Node against the database, `scripts/bootstrap-schema.sql`
+is every migration rolled into one file. Paste it into the psql console in the
+Render dashboard. It runs in a single transaction, so a failure leaves the
+database untouched, and it records each migration so a later `npm run migrate`
+sees the work as done. Regenerate it with `npm run bootstrap-sql` after adding a
+migration.
+
 ## What a sync does, in order
 
 1. Refreshes the account list and upserts it.
