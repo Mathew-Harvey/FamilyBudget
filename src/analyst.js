@@ -622,7 +622,7 @@ export async function afford({ amount, description, when = null, client = { quer
   const scenario = await forecast({
     days: 365,
     client,
-    extraEvents: [{ date, label: description || 'One off purchase', amount: `-${costText}` }],
+    extraEvents: [{ date, kind: 'scenario', label: description || 'One off purchase', amount: `-${costText}` }],
   });
   // The same question without the income that is only hoped for, which is the
   // honest version of the answer.
@@ -630,7 +630,7 @@ export async function afford({ amount, description, when = null, client = { quer
     days: 365,
     client,
     includeConfidence: ['confirmed'],
-    extraEvents: [{ date, label: description || 'One off purchase', amount: `-${costText}` }],
+    extraEvents: [{ date, kind: 'scenario', label: description || 'One off purchase', amount: `-${costText}` }],
   });
 
   const { rows: assets } = await client.query(

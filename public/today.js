@@ -52,6 +52,9 @@ function headline(position) {
     // context for this.
     el('div', { style: 'font-size:2.6rem;font-weight:700;line-height:1.1', text: position.runway_date_friendly ?? 'no date in range' }),
     el('div', { class: 'muted', text: `${position.runway_days} days from today, at the current rate` }),
+    // The way out, offered where the bad news is. A date with no next step is
+    // just something to feel bad about.
+    el('a', { href: '/plan', text: 'What it would take to last', style: 'align-self:flex-start' }),
     el('hr'),
     el('div', { class: 'row', style: 'gap:1.5rem;flex-wrap:wrap' }, [
       el('div', {}, [

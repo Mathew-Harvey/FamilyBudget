@@ -312,6 +312,28 @@ to Mat or to Skye by name, and the page never implies that cancelling a few
 subscriptions closes a gap it does not close. Read that document before changing
 anything on that page.
 
+**The plan on /plan must say when cutting is not enough.** `src/lean.js` tiers
+every cost keep, trim or cut, and builds three cumulative steps that each name
+what actually goes. "Lasts" means what comes in covers what goes out, never that
+the 400 day projection happened to reach its last day above zero: the first
+version reported "never runs out" for a step saving 5,689 against a gap of
+6,883. When a step is short it says so and by how much, and the floor says
+whether all of it together is enough. On this household it is not, by about
+1,400 a month, and a page that implied otherwise would be doing real harm.
+
+**Tier defaults are a starting point, and the merchant beats the category.**
+A category is too blunt to decide with: this household's "Services" holds health
+cover and drone parts. Resolve the merchant for a commitment in JavaScript
+through `matchKeyFor`, never by joining the two key kinds in SQL, or the plan
+proposes cancelling the health insurance and stopping the loan repayments, which
+is what it did. Anything `to_own_debt` is keep, whatever else says.
+
+**A hypothetical dated today still counts.** `forecast()` skips day zero for
+real events, because today's balance already holds them. A scenario event has
+not happened, so it cannot be in the balance: events carrying `kind: 'scenario'`
+apply on any day, including today. Without that, selling sixteen thousand
+dollars of motorbikes bought exactly zero days, silently.
+
 ## Design decisions worth keeping
 
 - **Pending resolution updates the row in place** rather than deleting and

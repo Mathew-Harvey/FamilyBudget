@@ -326,10 +326,21 @@ export async function forecast({
     const date = addDays(today, day);
     const events = eventsByDate.get(date) ?? [];
 
-    // Day zero is today's actual balance, so nothing is applied to it.
+    // Day zero is today's actual balance, so nothing real is applied to it: the
+    // pay that landed this morning and the bill that went out are already in
+    // that figure.
+    //
+    // A scenario event is different. It has not happened, so it cannot be in
+    // the balance, and skipping it meant a hypothetical dated today vanished
+    // without trace: selling sixteen thousand dollars of motorbikes bought zero
+    // days, silently. Hypotheticals apply whatever day they fall on.
     if (day > 0) {
       for (const event of events) balanceCents += event.amount_cents;
       balanceCents -= Math.max(rate.per_day_cents - spendAdjustmentCentsPerDay, 0);
+    } else {
+      for (const event of events) {
+        if (event.kind === 'scenario') balanceCents += event.amount_cents;
+      }
     }
 
     if (balanceCents < lowest.cents) lowest = { date, cents: balanceCents };

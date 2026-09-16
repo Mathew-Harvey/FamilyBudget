@@ -178,6 +178,28 @@ spendingRouter.post('/merchants/:key', async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'No such merchant' });
 
+    // Finishing with a merchant has to stop its commitment too, or the bill
+    // leaves the spend rate and carries on being projected on its due dates,
+    // which is the worst of both: cancelled and still forecast.
+    //
+    // Resolved in JavaScript, because a commitment key and a merchant key are
+    // different normalisations and joining them in SQL matches almost nothing.
+    if (ended !== undefined) {
+      const { rows: labels } = await query(
+        `select distinct coalesce(display_description, description) as label
+           from budget_flows where merchant_key = $1`,
+        [req.params.key],
+      );
+      const keys = [...new Set(labels.map((row) => matchKeyFor(row.label)).filter(Boolean))];
+      if (keys.length) {
+        await query(
+          `update commitments set active = $2, updated_at = now()
+            where match_key = any($1::text[]) and source = 'detected'`,
+          [keys, !ended],
+        );
+      }
+    }
+
     // Naming a merchant is also a way of categorising everything it sold you,
     // which saves writing a rule for each one. Rows set by hand are left alone.
     if (categoryId) {
