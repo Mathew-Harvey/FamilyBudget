@@ -238,6 +238,20 @@ export async function leanPlan({
       per_year: fromCents(row.per_month_cents * 12),
     })),
     allowance_per_month: fromCents(allowanceCents),
+    // What the projection is built on, for the page to say in four rows. From
+    // the same base projection and cost model as everything else here, so it
+    // cannot disagree with the curve it explains.
+    assumes: {
+      income: base.expected_income,
+      cadence: base.cycle?.cadence ?? null,
+      essential_per_day: base.projected_everyday_rate.essential_per_day,
+      irregular_essential: base.everyday_rate.irregular_essential,
+      window_days: base.spend_window_days,
+      allowance_per_month: fromCents(allowanceCents),
+      allowance_chosen: costs.discretionary_allowance_chosen,
+      optional_history_per_month: fromCents(costs.historical_discretionary_per_month_cents),
+      optional_subscriptions_per_month: fromCents(optionalCommitmentCents),
+    },
     chosen: {
       stop: [...stopSet],
       // The rows at the ticked percent, so a card at 20 percent does not list

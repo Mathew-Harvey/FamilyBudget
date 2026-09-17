@@ -902,6 +902,17 @@ definition of how a projection is cut up for a page, used by two routes. Home
 lost the subscriptions list and the decisions box to Plan, because those are
 levers and this page is not.
 
+**The Forecast page is gone, and nothing it did is.** By the end it opened on
+the same figure and the same chart as Home and Plan, and its four sections
+each had a better home: what is coming up is under the fortnight card on Home,
+what the projection is built on is a fold on Plan under the curve it explains,
+the one offs are a row in the Needs you queue with their one button, and the
+repeating costs are a view on Spending, because a repeating cost is a judgement
+about a place and that is the page where places are judged. The route
+`src/routes/forecast.js` stays: the allowance page, the plan and the tests read
+through it. Three pages answering one question is what made the app hard to
+read, and a page whose every part belongs somewhere else is not a page.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

@@ -282,6 +282,11 @@ forecastRouter.get('/commitments', async (req, res, next) => {
     const assessed = new Map(costs.commitments.map((row) => [String(row.commitment_id), row]));
 
     res.json({
+      // The active total, summed here in cents so the page prints it rather
+      // than adding a column of 2dp strings in the browser.
+      active_per_month: centsToNumeric(
+        costs.commitments.reduce((total, row) => total + row.per_month_cents, 0),
+      ),
       commitments: rows.map((row) => {
         const judged = assessed.get(String(row.id));
         return {

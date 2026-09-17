@@ -6,7 +6,7 @@
 // diagram both answers "how much of this can we even change" and teaches what
 // the tile beside every row below means. That replaced two sentences of
 // explanation, which is what it was competing with.
-import { api, el, formatAmount, formatDate, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, formatDate, formatDay, renderNav, showError } from '/app.js';
 
 renderNav('/spending');
 
@@ -145,7 +145,7 @@ function renderSwitch() {
   box.append(
     segmented([[30, 'Month'], [90, '3 months'], [120, '4 months'], [365, 'Year']],
       windowDays, (value) => { windowDays = value; render(); }),
-    segmented([['merchants', 'By place'], ['groups', 'By kind'], ['unexplained', 'Not named yet']],
+    segmented([['merchants', 'By place'], ['groups', 'By kind'], ['repeating', 'Repeating'], ['unexplained', 'Not named yet']],
       view, (value) => { view = value; render(); }),
   );
 }
@@ -343,6 +343,119 @@ async function renderGroups() {
     })))];
 }
 
+// --- the bills that repeat -------------------------------------------------
+
+// The repeating costs, with whether each one must be paid. This lived on the
+// Forecast page, which is gone: a repeating cost is a judgement about a place,
+// and this is the page where places are judged. The tile is the merchant's
+// initials in the tier's colour, the same tile as every other row here.
+const REPEAT_WORD = {
+  keep: 'must pay',
+  trim: 'could trim',
+  cut: 'optional',
+  unknown: 'nothing has said whether this is optional',
+};
+
+function repeatTier(commitment) {
+  if (!commitment.active) return 'unknown';
+  if (commitment.tier === 'cut' && commitment.tier_source === 'default') return 'unknown';
+  return ['keep', 'trim', 'cut'].includes(commitment.tier) ? commitment.tier : 'unknown';
+}
+
+function repeatRow(commitment) {
+  const tier = repeatTier(commitment);
+  const toggle = el('input', { type: 'checkbox' });
+  toggle.checked = commitment.active;
+  toggle.addEventListener('change', async () => {
+    try {
+      await api(`/api/forecast/commitments/${commitment.id}`, {
+        method: 'POST', body: { active: toggle.checked },
+      });
+      showError('');
+      render();
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  const detail = el('div', { style: 'display:none;padding:12px 16px;border-top:1px solid var(--line)' }, [
+    el('label', { class: 'row', style: 'gap:9px;margin:0' }, [
+      toggle,
+      el('span', { class: 'small', text: 'Really does repeat, keep it in the projection' }),
+    ]),
+    el('p', { class: 'muted small', style: 'margin:10px 0 0', text:
+      `${commitment.source === 'manual' ? 'Added by hand' : `Seen ${commitment.occurrences} times`}`
+      + `, about every ${commitment.cadence_days} days`
+      + `${commitment.category_name ? `, filed under ${commitment.group_name} / ${commitment.category_name}` : ''}`
+      + `${commitment.is_debt ? '. Paying down one of our own debts, so it is a must whatever else says' : ''}.` }),
+    commitment.name !== commitment.label
+      ? el('p', { class: 'muted small', style: 'margin:6px 0 0', text: `The bank calls it: ${commitment.label}` })
+      : null,
+  ]);
+
+  const line = el('div', { class: `item${commitment.active ? '' : ' muted'}`, style: 'cursor:pointer' }, [
+    el('span', { class: `av ${tier}`, text: initialsOf(commitment.name) }),
+    el('span', { class: 'grow' }, [
+      el('span', { class: 't truncate', text: commitment.name }),
+      el('span', { class: 's', text: commitment.active
+        ? `${REPEAT_WORD[tier]}, next ${formatDay(commitment.next_due)}`
+        : 'turned off, not in the projection' }),
+    ]),
+    el('span', { style: 'text-align:right' }, [
+      el('span', { class: 'amount out', text: formatAmount(commitment.typical_amount) }),
+      commitment.per_month
+        ? el('span', { class: 's', text: `${formatAmount(commitment.per_month)} a month` })
+        : null,
+    ]),
+  ]);
+  line.addEventListener('click', () => {
+    detail.style.display = detail.style.display === 'none' ? '' : 'none';
+  });
+  return el('div', {}, [line, detail]);
+}
+
+async function renderRepeating() {
+  const { commitments, active_per_month: activePerMonth } = await api('/api/forecast/commitments');
+  const out = [];
+  if (!commitments.length) {
+    out.push(el('p', { class: 'empty', text: 'Nothing repeating has been found yet.' }));
+  } else {
+    const active = commitments.filter((row) => row.active).length;
+    out.push(
+      el('p', { class: 'muted small', style: 'margin:-4px 0 10px', text:
+        `${active} of them, ${formatAmount(activePerMonth)} a month between them. `
+        + 'Open one to turn it off if it is not really a repeating cost, or to see what the bank calls it.' }),
+      el('div', { class: 'card flush' }, commitments.map(repeatRow)),
+    );
+  }
+
+  const run = el('button', { class: 'primary', text: 'Run it' });
+  const state = el('span', { class: 'muted small' });
+  run.addEventListener('click', async () => {
+    run.disabled = true;
+    state.textContent = 'Looking...';
+    try {
+      const { found } = await api('/api/forecast/commitments/detect', { method: 'POST' });
+      state.textContent = `${found} repeating costs found.`;
+      render();
+    } catch (err) {
+      showError(err.message);
+      run.disabled = false;
+    }
+  });
+  out.push(el('details', { class: 'card' }, [
+    el('summary', { text: 'Look for new ones' }),
+    el('div', { class: 'stack', style: 'margin-top:14px' }, [
+      el('p', { class: 'muted small', style: 'margin:0', text:
+        'Goes back over the transactions looking for outgoings that repeat at a regular '
+        + 'interval. Worth running after a new direct debit starts, or after renaming a place. '
+        + 'Anything you added by hand is left alone.' }),
+      el('div', { class: 'row' }, [run, state]),
+    ]),
+  ]));
+  return out;
+}
+
 async function renderUnexplained() {
   const { merchants } = await api(`/api/spending/unexplained?window=${windowDays}`);
   const ask = el('button', { class: 'primary', text: 'Ask Claude what these are' });
@@ -387,8 +500,9 @@ async function render() {
     renderHead(await api(`/api/spending?window=${windowDays}`));
     body.innerHTML = '';
     const rows = view === 'groups' ? await renderGroups()
-      : view === 'unexplained' ? await renderUnexplained()
-        : await renderMerchants();
+      : view === 'repeating' ? await renderRepeating()
+        : view === 'unexplained' ? await renderUnexplained()
+          : await renderMerchants();
     body.append(...rows);
     showError('');
   } catch (err) {

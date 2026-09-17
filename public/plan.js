@@ -291,6 +291,55 @@ function renderFloor() {
   ]));
 }
 
+// --- what this assumes ----------------------------------------------------
+
+// The four figures the curve is built on, folded, because they are the answer
+// to "where does that number come from" and not something to read every time.
+// This lived on the Forecast page, which is gone; the curve it explained is
+// the one at the top of this page now.
+function renderAssumes() {
+  const a = data.plan.assumes;
+  const box = document.getElementById('assumes');
+  box.innerHTML = '';
+  if (!a) return;
+
+  const row = (title, caption, amount, link = null) => el('div', { class: 'item' }, [
+    el('span', { class: 'grow' }, [
+      el('span', { class: 't', text: title }),
+      el('span', { class: 's' }, [
+        el('span', { text: link ? `${caption}. ` : caption }),
+        link ? el('a', { href: link.href, text: link.text }) : null,
+      ]),
+    ]),
+    el('span', { class: 'amount', text: amount }),
+  ]);
+
+  const notes = [];
+  if (Number(a.irregular_essential) > 0) {
+    notes.push(`${money(a.irregular_essential)} of the essential spending is at places seen on `
+      + 'fewer than three dates: vets, registrations, repairs. It is in the projection anyway, '
+      + 'because something in that shape happens most months even though it is never the same thing twice.');
+  }
+  // Two 2dp strings from the server, compared as strings: no arithmetic.
+  if (a.optional_history_per_month !== a.allowance_per_month) {
+    notes.push(`Optional day to day spending has actually been running at `
+      + `${money(a.optional_history_per_month)} a month. The plan uses the allowance instead.`);
+  }
+
+  box.append(el('details', { class: 'card' }, [
+    el('summary', { text: 'What this assumes' }),
+    el('div', { class: 'card flush', style: 'margin-top:12px' }, [
+      row('Money coming in', `${a.income.source}, ${a.cadence || 'each period'}`, money(a.income.amount)),
+      row('Essential spending', `a day, from the last ${a.window_days} days`, money(a.essential_per_day)),
+      row('Optional allowance',
+        a.allowance_chosen ? 'a month, the figure you chose' : 'a month, following what optional spending has been',
+        money(a.allowance_per_month), { href: '/allowance', text: 'Change it' }),
+      row('Optional subscriptions', 'a month, judged optional on the Spending page', money(a.optional_subscriptions_per_month)),
+    ]),
+    ...notes.map((text) => el('p', { class: 'muted small', style: 'margin:10px 0 0', text })),
+  ]));
+}
+
 // --- money coming later ---------------------------------------------------
 
 function labelled(label, control) {
@@ -575,6 +624,7 @@ async function load() {
     renderStop();
     renderTrim();
     renderFloor();
+    renderAssumes();
     renderExpecting();
     renderSell();
     renderDecisions();

@@ -135,8 +135,6 @@ function noteFor(href, s) {
   switch (href) {
     case '/allowance':
       return s.allowance_chosen ? 'a number you chose' : 'following what you spend';
-    case '/forecast':
-      return s.commitments ? `${s.commitments} repeating costs` : null;
     case '/rules':
       return s.rules ? `${s.rules} rules` : null;
     case '/sync':

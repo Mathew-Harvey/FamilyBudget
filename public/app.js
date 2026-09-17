@@ -142,7 +142,6 @@ export const SETUP_PAGES = [
     ['/accounts', 'Accounts', 'What each one is for, and whether it counts as spendable cash'],
     ['/buckets', 'Pay cycle and envelopes', 'How often you are paid, and giving every dollar a job'],
     ['/allowance', 'The allowance', 'How much a month for the things you do not have to buy'],
-    ['/forecast', 'Recurring costs', 'The bills that repeat, and the cash curve they make'],
   ]],
   ['Teaching it what things are', [
     ['/categories', 'Categories', 'The taxonomy, and what the bank calls things'],
