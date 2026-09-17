@@ -47,28 +47,7 @@
   </div>
 
   <h2>Levers</h2>
-  <p class="muted">Things we could sell, and income we expect but that has not started. The forecast counts expected income from its start date, and the planner knows what could be sold.</p>
-  <div class="card stack">
-    <div class="filters">
-      <div><label for="assetName">Something we could sell</label><input id="assetName" style="width:100%" placeholder="Motorbike"></div>
-      <div><label for="assetValue">Worth about</label><input id="assetValue" type="number" step="0.01" style="width:100%" placeholder="10000"></div>
-    </div>
-    <div class="row"><button id="addAsset">Add it</button></div>
-    <div id="assetList"></div>
-    <hr style="border:0;border-top:1px solid var(--line);width:100%">
-    <div class="filters">
-      <div><label for="incLabel">Income expected</label><input id="incLabel" style="width:100%" placeholder="Skye returning to work"></div>
-      <div><label for="incAmount">Amount</label><input id="incAmount" type="number" step="0.01" style="width:100%" placeholder="4800"></div>
-      <div><label for="incCadence">Every (days)</label><input id="incCadence" type="number" value="30" style="width:100%"></div>
-      <div><label for="incStart">Starting</label><input id="incStart" type="date" style="width:100%"></div>
-      <div><label for="incEnd">Ending, if temporary</label><input id="incEnd" type="date" style="width:100%"></div>
-      <div><label for="incConfidence">How sure</label><select id="incConfidence" style="width:100%">
-        <option value="confirmed">confirmed</option><option value="likely" selected>likely</option><option value="possible">possible</option>
-      </select></div>
-    </div>
-    <div class="row"><button id="addIncome">Add it</button></div>
-    <div id="incomeList"></div>
-  </div>
+  <p class="muted">Income you expect but that has not started, and things you could sell, are set on <a href="/expected">Changes you expect</a> under Set up. They feed the forecast whether or not analysis is switched on, which is why they do not live behind this switch.</p>
 
   <h2>Something coming up</h2>
   <p class="muted">Tell it about a cost you know is coming, in plain words. It works out the shape and you decide whether to add it.</p>

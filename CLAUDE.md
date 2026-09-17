@@ -477,6 +477,16 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**Expected income is a forecast input, not an analyst feature.**
+`buildForecastContext` reads `expected_income` straight from the database on
+every projection, whether or not anybody has ever switched Claude on. It used to
+be entered on the Insights page under a heading called "Levers", beneath a
+switch saying analysis is off, so it read as switched off too and the one person
+who needed it could not find it. It lives on `/expected` under "the money coming
+in" now, which is what it is: a wage that starts in March is the pay cycle's
+future. The endpoints are still under `/api/analyst`, which is also wrong and is
+invisible from the browser, so moving them would touch the analyst for no gain.
+
 **The fortnight is measured, never a month divided by 2.17.** Every other figure
 in this app is monthly and nobody lives a month: the pay lands every fortnight
 and has to last until the next lot, which is the unit the decisions are taken
