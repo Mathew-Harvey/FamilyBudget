@@ -5,7 +5,7 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { priceIn, friendlyDate, didItStick, movers, position, tradeOff, whatToStop, debts } from '../src/behaviour.js';
+import { priceIn, friendlyDate, didItStick, movers, position, tradeOff, whatToStop, debts, thisPeriod } from '../src/behaviour.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
 import { daysAgo, addDays, today } from '../src/dates.js';
@@ -379,4 +379,66 @@ test('an allowance somebody set to zero stays zero', async () => {
   const here = await position({ client: pool });
   assert.equal(here.discretionary_per_month, '0.00');
   assert.equal(here.optional_history_excluded, here.optional_history_per_month);
+});
+
+test('this pay period is measured, not a month divided by two', async () => {
+  // Every other figure on the page is monthly and nobody lives a month. The
+  // pay lands every fortnight and has to last until the next lot, which is the
+  // unit the decisions are actually taken in. Converting the monthly rate would
+  // give a fortnight sized number describing no particular fortnight, so this
+  // reads what really came in and went out since the last payday.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await pool.query(
+    "insert into balances (account_id, balance_date, balance) values ($1, current_date, '5000.00')",
+    [account.id],
+  );
+  const { rows: [income] } = await pool.query(
+    "insert into categories (name, kind) values ('Pay', 'income') returning id",
+  );
+  // A fortnight that started six days ago, so today is day seven of fourteen.
+  await setPayCycle('fortnightly', daysAgo(6), '2000.00', pool);
+  await ensurePayPeriods({ pool });
+
+  await addTxn(pool, account.id, { date: daysAgo(6), cents: 200000, description: 'PAY', categoryId: income.id });
+  await addTxn(pool, account.id, { date: daysAgo(3), cents: -30000, description: 'SHOP' });
+  // Before this period started, so it belongs to the fortnight before.
+  await addTxn(pool, account.id, { date: daysAgo(9), cents: -50000, description: 'EARLIER' });
+
+  const here = await thisPeriod({ client: pool });
+  assert.equal(here.unit, 'fortnight');
+  assert.equal(here.days_total, 14);
+  assert.equal(here.days_elapsed, 7);
+  assert.equal(here.days_left, 7);
+  assert.equal(here.in_so_far, '2000.00');
+  assert.equal(here.out_so_far, '300.00', 'the earlier shop belongs to the fortnight before');
+  assert.equal(here.net_so_far, '1700.00');
+  // Half the period gone, so an even spend would have reached half the pay.
+  assert.equal(here.pace, '1000.00');
+  assert.equal(here.ahead, true);
+  assert.equal(here.has_income, true);
+});
+
+test('a period with no pay in it yet is not measured against an even spend', async () => {
+  // Pace is this period's own income spread across the days that have passed.
+  // With no income the line sits at zero, so every dollar is "past" it, and
+  // saying so would be arithmetic dressed up as a warning.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setPayCycle('weekly', daysAgo(3), '0', pool);
+  await ensurePayPeriods({ pool });
+  await addTxn(pool, account.id, { date: daysAgo(1), cents: -4000, description: 'SHOP' });
+
+  const here = await thisPeriod({ client: pool });
+  assert.equal(here.unit, 'week', 'the word follows the configured cycle');
+  assert.equal(here.has_income, false);
+  assert.equal(here.in_so_far, '0.00');
+  assert.equal(here.out_so_far, '40.00');
+  assert.equal(here.net_so_far, '-40.00');
+});
+
+test('there is no period card before a pay cycle is configured', async () => {
+  const pool = await getTestPool();
+  await makeAccount(pool, { is_liquid: true });
+  assert.equal(await thisPeriod({ client: pool }), null);
 });

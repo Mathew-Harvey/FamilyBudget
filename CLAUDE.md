@@ -477,6 +477,24 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**The fortnight is measured, never a month divided by 2.17.** Every other figure
+in this app is monthly and nobody lives a month: the pay lands every fortnight
+and has to last until the next lot, which is the unit the decisions are taken
+in. `thisPeriod` in `src/behaviour.js` reads what actually came in and went out
+since the last payday, bounded at today on both ends, which is a different and
+better claim than a rate cut down to size. The word follows the configured
+cadence, because calling a weekly period a fortnight is the page telling someone
+something wrong about their own pay.
+
+**The balance is not the subject of the period card.** A household with 22,000
+in the bank is not living on it for four days, so the card is about the flow
+through the period: did the money that arrived cover what has gone out. That
+question means the same thing at any balance. The mark on the bars is this
+period's own income times the share of the period that has passed, so being
+ahead or behind is a length rather than a division, and it is not a second rate.
+Without income in the period the line sits at zero and every dollar is past it,
+so the card says no pay has landed instead of dressing arithmetic as a warning.
+
 **A workshop page leads with its state, not its form.** Sync opened on a button
 with the one fact you came for, how current the data is, buried in a US
 formatted timestamp in a table cell. Alerts opened on a settings form with its

@@ -25,6 +25,7 @@ import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './for
 import { matchKeyFor } from './commitments.js';
 import { numericToCents, centsToNumeric, centsPerMonth, monthlyFromDaily, dailyFromMonthly } from './money.js';
 import { today as householdToday } from './dates.js';
+import { currentPeriod, getPayCycle } from './buckets.js';
 
 const DAY_MS = 86_400_000;
 // Only priceIn uses this, and it uses it as a real number on purpose: the
@@ -659,4 +660,101 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
       unused_credit_line: owedCents === 0 && perMonthCents > 0,
     };
   });
+}
+
+// How this fortnight is going.
+//
+// Every other figure in this app is a month, and nobody lives a month. This
+// household is paid every fortnight: money lands, and it has to last until the
+// next lot lands. That is the unit the decisions are actually taken in, and
+// "965 a month short" is a fact about a shape while "443 short this fortnight"
+// is a fact about the week you are having.
+//
+// Measured, not converted. Dividing the monthly rate by 2.17 would give a
+// fortnight sized number that describes no particular fortnight. This reads
+// what actually came in and went out since the last payday, which is a
+// different and better claim, and it needs no rate at all.
+//
+// The balance is deliberately not the subject. A household with 22,000 in the
+// bank is not "living on 2,846 for four days", so the card is about the flow
+// through this period: did the money that arrived cover what has gone out. That
+// question means the same thing at any balance.
+export async function thisPeriod({ client = { query }, projection = null } = {}) {
+  const period = await currentPeriod(client);
+  if (!period) return null;
+  // The word follows the configured cycle. Calling a weekly period a fortnight
+  // is the page telling somebody something about their own pay that is wrong.
+  const cycle = await getPayCycle(client);
+  const unit = { weekly: 'week', fortnightly: 'fortnight', monthly: 'month' }[cycle?.cadence]
+    ?? 'pay period';
+
+  const starts = String(period.starts_on).slice(0, 10);
+  const ends = String(period.ends_on).slice(0, 10);
+  const today = householdToday();
+
+  // Bounded at today, not at the end of the period. Both ends, because a future
+  // dated row would otherwise be counted as money already spent.
+  const { rows: [totals] } = await client.query(
+    `select
+       coalesce(sum(t.amount) filter (where c.kind = 'income'), 0) as income,
+       coalesce(sum(-t.amount) filter (where c.kind = 'expense' or c.kind is null), 0) as out
+     from budget_flows t
+     left join categories c on c.id = t.category_id
+     where t.counts
+       and t.txn_date >= $1::date and t.txn_date <= $2::date`,
+    [starts, today],
+  );
+
+  const day = 86_400_000;
+  const parseDay = (iso) => Date.parse(`${iso}T00:00:00Z`);
+  const totalDays = Math.round((parseDay(ends) - parseDay(starts)) / day) + 1;
+  const elapsed = Math.min(Math.round((parseDay(today) - parseDay(starts)) / day) + 1, totalDays);
+  const daysLeft = Math.max(totalDays - elapsed, 0);
+  const nextPay = new Date(parseDay(ends) + day).toISOString().slice(0, 10);
+
+  const inCents = toCents(totals.income);
+  const outCents = toCents(totals.out);
+
+  // Where an even spend would have reached by now. Not a forecast and not a
+  // second rate: it is this period's own income multiplied by the share of the
+  // period that has passed, which is the line the "out" bar is read against.
+  const paceCents = Math.round((inCents * elapsed) / totalDays);
+
+  // What the plan says is still to come before payday, read off the projection
+  // the rest of the app is built from rather than worked out again here.
+  let expectedOutCents = null;
+  if (projection?.series?.length) {
+    const byDate = new Map(projection.series.map((point) => [point.date, point.balance_cents]));
+    const now = byDate.get(today);
+    const atPayday = byDate.get(ends);
+    if (now !== undefined && atPayday !== undefined) expectedOutCents = now - atPayday;
+  }
+
+  return {
+    cadence: cycle?.cadence ?? null,
+    unit,
+    starts_on: starts,
+    ends_on: ends,
+    next_payday: nextPay,
+    next_payday_friendly: friendlyDate(nextPay),
+    days_total: totalDays,
+    days_elapsed: elapsed,
+    days_left: daysLeft,
+    in_so_far: fromCents(inCents),
+    in_so_far_cents: inCents,
+    out_so_far: fromCents(outCents),
+    out_so_far_cents: outCents,
+    // Positive means this fortnight has paid for itself so far.
+    net_so_far: fromCents(inCents - outCents),
+    ahead: outCents <= paceCents,
+    // Without income in this period there is nothing for an even spend to be
+    // even against: the pace line is zero, so every dollar is "past" it and
+    // saying so would be arithmetic dressed as a warning.
+    has_income: inCents > 0,
+    pace_cents: paceCents,
+    pace: fromCents(paceCents),
+    // How far off an even spend it is, which is the number the bar is showing.
+    off_pace: fromCents(Math.abs(outCents - paceCents)),
+    still_to_come: expectedOutCents === null ? null : fromCents(Math.max(expectedOutCents, 0)),
+  };
 }

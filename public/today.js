@@ -183,6 +183,79 @@ function headline(position, curve) {
   }
 }
 
+// How this fortnight is going.
+//
+// Everything above is a month, and nobody lives a month. The pay lands every
+// fortnight and has to last until the next lot, which is the unit the decisions
+// are actually taken in: "965 a month short" is a fact about a shape, "443
+// short this fortnight" is a fact about the week you are having.
+//
+// Measured rather than converted. Dividing the monthly figure by 2.17 gives a
+// fortnight sized number that describes no particular fortnight; this is what
+// actually came in and went out since the last payday.
+//
+// The mark on the bars is where an even spend would have reached by now, so
+// being ahead or behind is a length rather than a division. The balance is
+// deliberately not the subject: a household with 22,000 in the bank is not
+// living on it for four days, and the flow through the period means the same
+// thing at any balance.
+function fortnight(period) {
+  const box = document.getElementById('fortnight');
+  box.innerHTML = '';
+  if (!period || !period.days_total) return;
+
+  const inCents = period.in_so_far_cents;
+  const outCents = period.out_so_far_cents;
+  const widest = Math.max(inCents, outCents, period.pace_cents, 1);
+  const width = (cents) => `${Math.min((cents / widest) * 100, 100).toFixed(1)}%`;
+  const over = outCents > period.pace_cents;
+
+  const lane = (cents, className) => el('div', { class: 'lane' }, [
+    el('i', { class: className, style: `width:${width(cents)}` }),
+  ]);
+  const outLane = lane(outCents, over ? 'out over' : 'out');
+  if (period.has_income) {
+    outLane.append(el('div', {
+      class: 'pace',
+      style: `left:${width(period.pace_cents)}`,
+      'data-note': `${period.days_elapsed} of ${period.days_total} days gone`,
+    }));
+  }
+
+  box.append(
+    el('div', { class: 'sec', text: `This ${period.unit}` }),
+    el('div', { class: 'card period' }, [
+      el('span', { class: `state ${over ? 'warn' : 'ok'}` }, [
+        el('span', { class: 'dot' }),
+        el('span', { text: period.days_left === 0
+          ? 'Payday tomorrow'
+          : `${period.days_left} day${period.days_left === 1 ? '' : 's'} to payday, ${period.next_payday_friendly}` }),
+      ]),
+      el('div', { class: 'figure', text: abs(period.net_so_far) }),
+      el('div', { class: `delta ${String(period.net_so_far).startsWith('-') ? 'down' : 'up'}` }, [
+        el('span', { class: 'q', text: String(period.net_so_far).startsWith('-')
+          ? `more has gone out than came in this ${period.unit}`
+          : `of this ${period.unit}'s pay is still unspent` }),
+      ]),
+      el('div', { class: 'bars', style: 'margin-top:20px' }, [
+        el('span', { class: 's', text: 'In' }),
+        lane(inCents),
+        el('span', { class: 'amount', text: money(period.in_so_far) }),
+        el('span', { class: 's', text: 'Out' }),
+        outLane,
+        el('span', { class: 'amount', text: money(period.out_so_far) }),
+      ]),
+      el('p', { class: 'muted small', style: 'margin:0', text:
+        (period.has_income
+          ? `${money(period.off_pace)} ${over ? 'past' : 'short of'} an even spend by now`
+          : `No pay has landed this ${period.unit} yet`)
+        + (period.still_to_come && Number(period.still_to_come) > 0
+          ? `, and the plan expects ${money(period.still_to_come)} more before payday.`
+          : '.') }),
+    ]),
+  );
+}
+
 // Did the last decision hold?
 //
 // This is the part most likely to change anything, and the part easiest to get
@@ -541,6 +614,7 @@ async function load() {
   try {
     const data = await api('/api/today');
     headline(data.position, data.curve);
+    fortnight(data.period);
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
     debtsSection(data.debts);

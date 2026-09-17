@@ -213,11 +213,18 @@ closing it after the first screen still leaves you with the thing that matters:
    in the one dimension a figure cannot carry, which is time, and the band
    either side of today's level answers "are we building up or running down"
    without a word.
-2. **Did it stick**, which is the feedback on the last decision.
-3. **What grew**, naming places rather than categories, because a category
+2. **This pay period**, which is the horizon anything can be done about today.
+   The runway is a date months out and the gap is a fact about a shape; neither
+   changes what happens this afternoon. The pay lands every fortnight and has to
+   last, and that is measured rather than converted: a month divided by 2.17
+   describes no particular fortnight. Being ahead or behind an even spend is
+   drawn as a mark on the bar rather than stated, so it is a length and not a
+   sum somebody has to trust.
+3. **Did it stick**, which is the feedback on the last decision.
+4. **What grew**, naming places rather than categories, because a category
    cannot be cancelled and a place can.
-4. **What each one is really costing**, priced by the year.
-5. **Decisions**, which is the only part that asks for anything.
+5. **What each one is really costing**, priced by the year.
+6. **Decisions**, which is the only part that asks for anything.
 
 Today is also the front door, at `/`. A page you have to navigate to is a page
 you look at when you already intended to, which is exactly when it is least

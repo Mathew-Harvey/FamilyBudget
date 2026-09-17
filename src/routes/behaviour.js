@@ -3,7 +3,7 @@
 // page exists at all when the Forecast page already has the numbers.
 import { Router } from 'express';
 import { query } from '../db.js';
-import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts } from '../behaviour.js';
+import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts, thisPeriod } from '../behaviour.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { numericToCents } from '../money.js';
 
@@ -80,7 +80,7 @@ behaviourRouter.get('/', async (req, res, next) => {
       ? { date: req.query.since, source: 'the date you asked for' }
       : await changePoint();
     const since = point.date;
-    const [stuck, moved, decisions, debtRows, costs] = await Promise.all([
+    const [stuck, moved, decisions, debtRows, costs, period] = await Promise.all([
       since ? didItStick({ since }) : null,
       since ? movers({ since }) : null,
       intentions(),
@@ -89,10 +89,12 @@ behaviourRouter.get('/', async (req, res, next) => {
       // asked for, so at ?window=60 the rows did not add up to the total.
       debts({ window }),
       whatToStop({ window, limit: 40, forecastContext, positionResult: here }),
+      thisPeriod({ projection }),
     ]);
 
     res.json({
       position: here,
+      period,
       curve: cashCurve(projection),
       change_point: point,
       stuck,

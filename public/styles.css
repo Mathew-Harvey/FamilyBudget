@@ -526,3 +526,34 @@ input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
 }
 .note.bad { color: var(--out); font-weight: 620; }
 .note.off { color: var(--muted); }
+
+/* --- this pay period ----------------------------------------------------- */
+/* Two bars on one scale with a mark where an even spend would have reached by
+   now. Whether the out bar is short of that mark or past it is the answer, as
+   a length, so nobody has to divide anything by anything. */
+/* Room at the bottom for the mark's own label, which hangs below the last lane
+   and was landing on the sentence underneath it. */
+.period .bars {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 9px 10px;
+  align-items: center; padding-bottom: 24px;
+}
+/* The lane is the whole scale, drawn faintly, so a short bar is read against
+   what it could have been rather than floating in the card. */
+.period .lane { position: relative; height: 15px; background: var(--line); border-radius: 8px; }
+.period .lane i {
+  position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: var(--neutral);
+}
+.period .lane i.out { background: var(--accent); }
+.period .lane i.over { background: var(--out); }
+/* The mark sits above the bars so it reads as a moment in the period rather
+   than as a quantity of money. */
+.period .pace {
+  position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--ink);
+  border-radius: 2px;
+}
+.period .pace::after {
+  content: attr(data-note); position: absolute; top: calc(100% + 7px); left: 50%;
+  transform: translateX(-50%); font-size: 0.72rem; color: var(--ink-2);
+  white-space: nowrap; font-weight: 560;
+}
+
