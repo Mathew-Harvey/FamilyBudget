@@ -36,10 +36,15 @@ export async function trimPercent(client = { query }) {
 
 // The plan. Each step includes the ones before it, because that is how it would
 // actually be lived.
+// choices is what the person has ticked on the page: which optional costs to
+// stop, whether the allowance goes to zero, and the trim percent. Absent, the
+// scenario is the whole plan. Present, it is exactly those, so the curve moves
+// as the ticks do and nothing else on the page changes meaning.
 export async function leanPlan({
   client = { query },
   window = DEFAULT_SPEND_WINDOW_DAYS,
   forecastContext = null,
+  choices = null,
 } = {}) {
   const trim = await trimPercent(client);
   const context = forecastContext ?? await buildForecastContext({
@@ -170,12 +175,42 @@ export async function leanPlan({
   const floorSavedCents = steps.at(-1)?.savesCents ?? 0;
   const stillShortCents = gapCents - floorSavedCents;
 
-  // Both curves on one horizon, or the comparison is drawn against a lie. The
-  // longer of the two horizons, so a plan that pushes the crossing out is shown
-  // reaching it rather than being cut off where the money as it is failed.
-  const horizon = floorView
-    ? Math.max(curveHorizon(base), curveHorizon(floorView))
-    : curveHorizon(base);
+  // The scenario the ticks describe.
+  //
+  // Same three levers as the steps, applied only where ticked, and re-projected
+  // through the same forecast. The saving is worked out the same way the steps
+  // work theirs out, per row rounded then summed, so the figure on the card is
+  // the rows it lists. With nothing ticked differently it is the floor, and the
+  // floor's own projection is reused rather than run again.
+  const stopSet = new Set((choices?.stop ?? optionalIds).map(String));
+  const keepAllowance = choices?.allowance === 'keep';
+  const chosenTrim = choices?.trim ?? trim;
+  const chosenTrimRowCents = (row) => Math.round((row.per_month_cents * chosenTrim) / 100);
+  const chosenTrimSaving = trimVariable.reduce((total, row) => total + chosenTrimRowCents(row), 0);
+  const chosenSavesCents = sum(cutCommitments.filter((row) => stopSet.has(String(row.commitment_id))))
+    + (keepAllowance ? 0 : allowanceCents)
+    + chosenTrimSaving;
+  const isWholePlan = !choices
+    || (stopSet.size === optionalIds.length && optionalIds.every((id) => stopSet.has(String(id)))
+        && !keepAllowance && chosenTrim === trim);
+  const chosenView = isWholePlan && floorView ? floorView : await forecast({
+    days: 400,
+    window,
+    client,
+    forecastContext: context,
+    discretionaryCentsPerMonth: keepAllowance ? undefined : 0,
+    excludeCommitmentIds: [...stopSet],
+    spendAdjustmentCentsPerDay: dailyFromMonthly(chosenTrimSaving),
+  });
+
+  // Every curve on one horizon, or the comparison is drawn against a lie. The
+  // longest of them, so a plan that pushes the crossing out is shown reaching
+  // it rather than being cut off where the money as it is failed.
+  const horizon = Math.max(
+    curveHorizon(base),
+    floorView ? curveHorizon(floorView) : 0,
+    curveHorizon(chosenView),
+  );
 
   return {
     window_days: window,
@@ -190,6 +225,39 @@ export async function leanPlan({
       as_is: cashCurve(base, horizon),
       // Null when there is nothing to change, rather than the same curve twice.
       with_plan: floorView ? cashCurve(floorView, horizon) : null,
+    },
+    // The optional costs themselves, with what the page needs to offer them:
+    // the id a tick sends back, the year figure that undoes a monthly framing,
+    // and the key a decision can watch itself against.
+    optional: cutCommitments.map((row) => ({
+      id: row.commitment_id,
+      name: row.name,
+      match_key: row.match_key,
+      what_it_is: row.what_it_is,
+      per_month: row.per_month,
+      per_year: fromCents(row.per_month_cents * 12),
+    })),
+    allowance_per_month: fromCents(allowanceCents),
+    chosen: {
+      stop: [...stopSet],
+      // The rows at the ticked percent, so a card at 20 percent does not list
+      // figures worked out at 30.
+      trim_rows: trimVariable.slice(0, 8).map((row) => ({
+        what: row.name,
+        per_month: fromCents(chosenTrimRowCents(row)),
+        from: row.per_month,
+      })),
+      trim_rows_more: Math.max(trimVariable.length - 8, 0),
+      allowance: keepAllowance ? 'keep' : 'zero',
+      trim_percent: chosenTrim,
+      saves_per_month: fromCents(chosenSavesCents),
+      lasts: chosenSavesCents >= gapCents,
+      still_short_per_month: fromCents(Math.max(gapCents - chosenSavesCents, 0)),
+      runway_date: chosenView.runway_date,
+      runway_date_friendly: friendlyDate(chosenView.runway_date),
+      beyond_horizon: chosenSavesCents < gapCents && chosenView.runway_date === null,
+      horizon_date_friendly: friendlyDate(chosenView.series.at(-1).date),
+      curve: cashCurve(chosenView, horizon),
     },
     steps: projected,
     floor: {
@@ -268,6 +336,7 @@ export async function assetLevers({
       extraEvents: [{ date: base.generated_for, label: asset.name, amount: fromCents(runningCents), kind: 'scenario' }],
     });
     out.push({
+      id: asset.id,
       name: asset.name,
       worth: asset.estimated_value,
       // Cumulative: selling the second one only helps on top of the first.

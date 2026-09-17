@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { leanPlan, assetLevers, trimPercent } from '../lean.js';
+import { intentions } from '../behaviour.js';
 import { buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 
 export const leanRouter = Router();
@@ -9,15 +10,38 @@ export const leanRouter = Router();
 const windowFrom = (req) =>
   Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 400);
 
+// The ticks on the page. With none of the three present the scenario is the
+// whole plan; with any present it is exactly what was sent. An empty stop list
+// means stop nothing, which is different from no stop list at all.
+function choicesFrom(req) {
+  const { stop, allowance, trim } = req.query;
+  if (stop === undefined && allowance === undefined && trim === undefined) return null;
+  const trimNumber = Number(trim);
+  return {
+    stop: stop === undefined ? undefined : String(stop).split(',').filter(Boolean),
+    allowance: allowance === 'keep' ? 'keep' : allowance === 'zero' ? 'zero' : undefined,
+    trim: trim === undefined || !Number.isFinite(trimNumber)
+      ? undefined
+      : Math.min(Math.max(Math.round(trimNumber), 0), 90),
+  };
+}
+
+// Every lever on one page. The plan's steps, what could be sold, the income
+// that has not started, and the decisions already made, because "what can we
+// change" was answered across five pages and the one someone needed was the
+// one they could not find.
 leanRouter.get('/', async (req, res, next) => {
   try {
     const window = windowFrom(req);
     const forecastContext = await buildForecastContext({ window });
-    const [plan, levers] = await Promise.all([
-      leanPlan({ window, forecastContext }),
+    const [plan, levers, expecting, decisions] = await Promise.all([
+      leanPlan({ window, forecastContext, choices: choicesFrom(req) }),
       assetLevers({ window, forecastContext }),
+      query(`select id, label, amount, cadence_days, starts_on, ends_on, confidence, active
+               from expected_income order by active desc, starts_on nulls last`),
+      intentions(),
     ]);
-    res.json({ plan, levers });
+    res.json({ plan, levers, expecting: expecting.rows, decisions });
   } catch (err) {
     next(err);
   }

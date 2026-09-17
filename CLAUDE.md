@@ -849,6 +849,27 @@ became one, and its state line said "Already balanced" of a household 6,824 a
 month ahead, where Home says "More is coming in than going out". The same state
 reads the same on every page.
 
+**"What can we change" is one page, and the ticks on it move the curve.** The
+levers were spread over five: subscriptions on Home, cuts on Plan, the
+allowance on its own page, a second wage and things to sell on `/expected`,
+decisions on Home. The one somebody needed, a wage starting in January, was on
+the page nobody could find, twice. Plan holds all of them now, ordered by what
+they are worth. `/api/plan` takes `?stop=<ids>&allowance=keep|zero&trim=<pct>`
+and re-projects exactly those choices as `plan.chosen`, with its own curve on
+the shared horizon; with none of the three present the scenario is the whole
+plan, and an empty `stop` means stop nothing, which is a different thing from
+no `stop` at all. The page sends the ticks back and redraws from the answer. No
+arithmetic on money happens in the browser, and the two cut sections redraw on
+a tick while the forms below keep what has been typed into them. `/expected`
+is gone; the analyst endpoints it used are unchanged. Home lost the
+subscriptions list and the decisions box, because Home is where the money
+stands and those are levers.
+
+**`Element.append(null)` writes the word "null" on the page.** `el()` filters
+null children; the native method stringifies them. A `rows.length ? card :
+null` passed straight to `append` rendered "null" under a heading. Spread
+through `.filter(Boolean)` or wrap in `el()`.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

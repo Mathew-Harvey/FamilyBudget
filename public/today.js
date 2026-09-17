@@ -42,27 +42,6 @@ const centsToText = (cents) => {
 };
 const abs = (value) => formatAmount(String(value).replace('-', ''));
 
-// Two letters from the name the household would recognise. A logo would need
-// fetching from somewhere and a generic glyph says less than the initials.
-function initialsOf(label) {
-  const words = String(label || '').replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/);
-  if (!words[0]) return '??';
-  const first = words[0];
-  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase();
-}
-
-// keep, trim or cut, straight from the server. src/costs.js owns classification
-// and no page reimplements it, so this only guards against an older payload.
-// A commitment that reached the optional tier only because nothing has judged
-// it is not a choice somebody made, it is a question nobody has answered. It
-// gets the hatch rather than the pale blue, the same mark the Spending diagram
-// and the Lasting plan use, so the front page stops presenting a default as a
-// decision.
-function tierOf(item) {
-  if (item.tier === 'cut' && item.tier_source === 'default') return 'unknown';
-  return ['keep', 'trim', 'cut'].includes(item.tier) ? item.tier : 'unknown';
-}
-
 // The opening. One sentence someone can repeat to the other person in the
 // house without opening the app.
 //
@@ -169,7 +148,7 @@ function headline(position, curve, expecting = []) {
         el('span', { text: expecting?.length
           ? `${expecting.length} more coming that has not started yet. `
           : 'Expecting a wage that has not started yet, or a second job? ' }),
-        el('a', { href: '/expected', text: expecting?.length ? 'Check it' : 'Add it to the forecast' }),
+        el('a', { href: '/plan#expecting', text: expecting?.length ? 'Check it' : 'Add it to the plan' }),
       ]),
     );
   }
@@ -442,203 +421,6 @@ function debtsSection(list) {
   box.append(card);
 }
 
-// What a recurring cost is really worth.
-//
-// Subscriptions are priced monthly because a small monthly number is easy to
-// agree to. That framing is doing work, and it is working against the person
-// paying, so the year is shown next to the month. The runway column is the
-// local currency: with money going out faster than it comes in, the honest
-// price of anything is a piece of the time left.
-async function whatToStop(data) {
-  const box = document.getElementById('stop');
-  box.innerHTML = '';
-
-  const chosen = new Set();
-  const result = el('div', { id: 'tradeOffResult', class: 'muted', style: 'min-height:1.4rem;margin-top:0.4rem' });
-
-  async function recalculate() {
-    if (!chosen.size) { result.textContent = ''; result.className = 'muted'; return; }
-    const monthly = data.items
-      .filter((item) => chosen.has(item.commitment_id))
-      .reduce((total, item) => total + Number(String(item.per_month).replace(/[^0-9.]/g, '')), 0);
-    result.textContent = 'Working it out...';
-    try {
-      // Only the commitment ids. Sending the monthly amount as well asked the
-      // forecast to both stop the bill and cut the daily rate by the same
-      // amount, so one 322 dollar subscription bought 22 days instead of 2.
-      // The amount is still shown, it just is not a second lever.
-      const moved = await api('/api/today/trade-off', {
-        method: 'POST',
-        body: { monthly: 0, commitment_ids: [...chosen] },
-      });
-      result.className = 'good';
-      result.style.fontWeight = '600';
-      result.textContent = moved.clears_the_gap
-        ? 'That closes the gap entirely. Nothing runs out.'
-        : `${moved.from_friendly} becomes ${moved.to_friendly}, ${moved.days_gained} more days, for ${formatAmount(monthly.toFixed(2))} a month.`;
-    } catch (err) {
-      result.className = 'warn';
-      result.textContent = err.message;
-    }
-  }
-
-  // One row per cost. Built as a grid rather than a table because five columns
-  // on a phone becomes a jumble whichever way the table is told to reflow.
-  const line = (item) => {
-    const tick = el('input', { type: 'checkbox', style: 'margin:0' });
-    tick.addEventListener('change', () => {
-      if (tick.checked) chosen.add(item.commitment_id); else chosen.delete(item.commitment_id);
-      recalculate();
-    });
-    return el('label', {
-      class: 'item',
-      style: 'display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:0.15rem 0.7rem;'
-        + 'align-items:center;cursor:pointer',
-    }, [
-      el('div', { style: 'grid-row:1/span 2' }, [tick]),
-      // The tile says how hard this would be to stop, which the app has always
-      // known and has never shown. One hue in three ordered steps: dark is a
-      // bill you must pay, pale is a choice. Ordered, so it is a real encoding
-      // rather than decoration, and the caption under the list says so.
-      el('div', { class: `av ${tierOf(item)}`, style: 'grid-row:1/span 2',
-        text: initialsOf(item.label) }),
-      el('div', { class: 'truncate t', text: item.label }),
-      // The year figure is the loud one. A subscription is priced monthly
-      // because a small monthly number is easy to say yes to, and showing the
-      // year next to it undoes exactly that framing.
-      el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: `${money(item.per_year)} a year` }),
-      el('div', { class: 'truncate s', text: tierOf(item) === 'unknown'
-        ? 'nothing has said whether this is optional'
-        : item.what_it_is || item.category || '' }),
-      // No per row day estimate. Working it out in closed form ignores the
-      // paydays in between and came out about double what this app's own
-      // projection says, and two numbers that disagree are worse than one.
-      // Tick the row and the answer underneath is the real projection.
-      el('div', { class: 'muted', style: 'text-align:right;white-space:nowrap;font-size:0.8rem' }, [
-        el('span', { text: `${money(item.per_month)} a month` }),
-      ]),
-    ]);
-  };
-
-  const choice = data.items.filter((item) => !item.fixed);
-  const fixed = data.items.filter((item) => item.fixed);
-
-  const card = el('div', { class: 'card stack' }, [
-    el('h3', { style: 'margin:0', text: 'What each one is really costing' }),
-    el('div', { class: 'muted', text: 'Priced by the year. Tick to see what stopping it would do.' }),
-    el('div', {}, choice.map(line)),
-    result,
-  ]);
-
-  // The honest total, and the honest caveat with it. A page that let someone
-  // cancel two subscriptions and feel the problem was handled would have done
-  // them harm. The small stuff is real and it is worth having, and on a gap
-  // this size it is not the answer, so both halves get said.
-  const small = choice.filter((item) => Number(String(item.per_month).replace(/[^0-9.]/g, '')) < 60);
-  if (small.length >= 5) {
-    const yearly = small.reduce((total, item) => total + Number(String(item.per_year).replace(/[^0-9.]/g, '')), 0);
-    const monthly = yearly / 12;
-    const share = data.daily_gap_cents > 0
-      ? Math.round((monthly * 100) / ((data.daily_gap_cents / 100) * 30.44))
-      : null;
-    card.append(el('p', { class: 'muted', style: 'margin:0.2rem 0 0' , text:
-      `${small.length} of these are under ${money('60')} a month each. Together they are `
-      + `${formatAmount(yearly.toFixed(2))} a year, which is worth having`
-      + (share !== null ? `, and it is ${share}% of the gap. The rest has to come from the big items or from income.` : '.') }));
-  }
-
-  // Shown, because knowing the mortgage is forty seven thousand a year is worth
-  // knowing. Listed apart, because a "what to stop" list whose first entry is
-  // obviously not an option teaches you the list is not worth reading.
-  if (fixed.length) {
-    const body = el('div', { style: 'display:none' }, fixed.map(line));
-    const toggle = el('button', { class: 'small', text: `Show the ${fixed.length} you cannot simply stop` });
-    toggle.addEventListener('click', () => {
-      const opening = body.style.display === 'none';
-      body.style.display = opening ? '' : 'none';
-      toggle.textContent = opening ? 'Hide those' : `Show the ${fixed.length} you cannot simply stop`;
-    });
-    card.append(el('hr'), toggle, body);
-  }
-  box.append(card);
-}
-
-// Decisions, with the "when" that makes them hold, and checked against the
-// transactions rather than against a tick box.
-function decisions(list, watchable) {
-  const box = document.getElementById('decisions');
-  box.innerHTML = '';
-
-  const what = el('input', { placeholder: 'What will change', style: 'flex:2;min-width:10rem' });
-  const when = el('input', { placeholder: 'When exactly (the trigger)', style: 'flex:2;min-width:10rem' });
-  const worth = el('input', { placeholder: '$ a month', style: 'flex:1;min-width:8rem' });
-
-  // Naming the place is what makes the decision checkable. Without it this is a
-  // note to self, and the app says so rather than pretending otherwise.
-  const watch = el('select', { style: 'flex:2;min-width:10rem' }, [
-    el('option', { value: '', text: 'Nothing to watch (a note to self)' }),
-    ...(watchable ?? []).map((item) =>
-      el('option', { value: item.merchant_key ?? '', text: `Watch: ${item.label}` })),
-  ]);
-
-  const add = el('button', { class: 'primary', text: 'Decide it', style: 'white-space:nowrap' });
-  add.addEventListener('click', async () => {
-    if (!what.value.trim()) return showError('Say what will change');
-    add.disabled = true;
-    try {
-      await api('/api/today/intentions', {
-        method: 'POST',
-        body: {
-          what: what.value,
-          trigger_text: when.value || null,
-          target_monthly: worth.value || null,
-          merchant_key: watch.value || null,
-        },
-      });
-      what.value = ''; when.value = ''; worth.value = ''; watch.value = '';
-      await load();
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      add.disabled = false;
-    }
-  });
-
-  const card = el('div', { class: 'card stack' }, [
-    el('h3', { style: 'margin:0', text: 'Decisions' }),
-    // The example pair from docs/behaviour.md rather than the maxim it was
-    // shrunk into. "A decision with a when attached gets done, one without does
-    // not" is a claim about people that this page cannot check, on the page
-    // whose whole rule is that every line must be true and checkable.
-    el('div', { class: 'muted', text:
-      'What changes, and when exactly. "No delivery on weeknights" is a plan. '
-      + '"Spend less on takeaway" is a mood.' }),
-    // Wraps rather than squeezing. Five controls on one phone width turned
-    // every placeholder into a truncated fragment.
-    el('div', { class: 'row', style: 'flex-wrap:wrap' }, [what, when]),
-    el('div', { class: 'row', style: 'flex-wrap:wrap' }, [watch, worth, add]),
-  ]);
-
-  if (list.length) {
-    card.append(el('table', { class: 'table-responsive' }, [
-      el('tbody', {}, list.map((item) =>
-        el('tr', {}, [
-          el('td', { 'data-col': 'what' }, [
-            el('div', { text: item.what }),
-            item.trigger_text ? el('div', { class: 'muted truncate', text: item.trigger_text }) : null,
-          ]),
-          el('td', { 'data-col': 'verdict' }, [
-            el('span', { class: item.verdict === 'held' ? 'good' : item.verdict === 'still being charged' ? 'warn' : 'muted', text: item.verdict }),
-            item.merchant_key ? el('div', { class: 'muted truncate', style: 'font-size:0.75rem', text: `watching ${item.merchant_key}` }) : null,
-          ]),
-          el('td', { 'data-col': 'worth', class: 'right muted', text: item.target_monthly ? `${money(item.target_monthly)} a month` : '' }),
-        ]),
-      )),
-    ]));
-  }
-  box.append(card);
-}
-
 async function load() {
   try {
     const data = await api('/api/today');
@@ -647,9 +429,6 @@ async function load() {
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
     debtsSection(data.debts);
-    // The costs share the same loaded forecast model as the headline.
-    decisions(data.intentions, data.costs.items.filter((item) => !item.fixed));
-    await whatToStop(data.costs);
     showError('');
   } catch (err) {
     showError(err.message);

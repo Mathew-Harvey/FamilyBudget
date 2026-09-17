@@ -209,7 +209,7 @@ function renderAssumes() {
     assumption('Money coming in',
       `${data.expected_income.source}, ${data.cycle?.cadence || 'each period'}`,
       money(data.expected_income.amount),
-      { href: '/expected', text: 'Expecting more?' }),
+      { href: '/plan#expecting', text: 'Expecting more?' }),
     assumption('Essential spending',
       `a day, from the last ${data.spend_window_days} days`,
       money(rate.essential_per_day)),
