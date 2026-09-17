@@ -190,6 +190,43 @@ Today is also the front door, at `/`. A page you have to navigate to is a page
 you look at when you already intended to, which is exactly when it is least
 needed.
 
+## The shape of it
+
+Thirteen tabs, and eight of them were the workshop rather than the budget:
+Transactions, Categories, Rules, Buckets, Transfers, Sync, Alerts and Insights
+are a person teaching the app what things are. Two people share this and only
+one of them maintains it, so a nav bar that puts Rules beside Today asks the
+other one to step over the machinery every time she opens it.
+
+Four places now, in a bar at the bottom of the phone where every other app she
+uses keeps them: Home, Spending, Plan, Set up. The eight live under the last,
+grouped by why you would go there. This is not tidying. A page that looks like
+an admin console gets opened by the person who likes admin consoles, and a
+budget only works if both people open it.
+
+**The hero is the runway date whenever there is one.** When the projection never
+reaches zero, which is the ordinary case for a household that is slightly short
+with cash in the bank, there is no date to show and the page falls back to the
+spendable balance with the direction beside it. Both of those used to print the
+word "null" under a heading that was not a date. The fallback is the figure the
+runway would have been computed from, so it is the same number the rest of the
+app would give, and the state line above it carries the direction so a balance
+is never read as good news on its own.
+
+**Colour carries meaning or it is not used.** One blue for anything that is a
+quantity, orange only where a second series genuinely exists, and the four
+status colours reserved for state with a word always beside them, never colour
+alone. The tile next to a recurring cost is one hue in three ordered steps, and
+what it encodes is the tier `src/costs.js` already assigns: dark is a bill you
+must pay, pale is a choice. That classification has always existed and was never
+visible. No per category rainbow: past about eight hues they stop being
+distinguishable, and a colour that means nothing is a colour that teaches the
+reader to ignore colour.
+
+**Light is the default and dark is a choice.** Not an automatic flip from the
+operating system, which is usually a preference about a phone at night rather
+than about a budget looked at in daylight.
+
 ## The rule for anyone changing this
 
 Every number on this page must be true, and must be the same number the rest of

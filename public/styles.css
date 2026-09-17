@@ -1,194 +1,259 @@
-/* Quiet, readable, phone first. No framework. */
+/* Phone first, no framework, no build step.
+ *
+ * Light is the default and dark is a choice, not an automatic flip: the app is
+ * looked at in daylight more often than not, and an OS level dark preference is
+ * usually about a phone at night rather than about this. The toggle in the
+ * header sets data-theme on <html> and remembers it.
+ *
+ * The colours are the validated data viz palette: one blue for everything that
+ * is a quantity, orange only where a second series genuinely exists, and the
+ * four status colours reserved for state. A status colour never carries meaning
+ * on its own, it always has a word beside it. */
 :root {
-  --bg: #f6f6f4;
-  --surface: #ffffff;
-  --line: #e2e2dd;
-  --ink: #23231f;
-  --ink-soft: #6b6b63;
-  --accent: #2f5d50;
-  --out: #a3342b;
-  --in: #26674f;
-  --warn-bg: #fdf4e3;
-  --warn-line: #e6d3a8;
-  --radius: 10px;
+  color-scheme: light;
+  --page:      #f4f4f1;
+  --surface:   #fcfcfb;
+  --ink:       #0b0b0b;
+  --ink-2:     #52514e;
+  --muted:     #898781;
+  --line:      #e1e0d9;
+  --ring:      rgba(11, 11, 11, 0.09);
+  --shadow:    0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.05);
+
+  --accent:    #2a78d6;
+  --accent-2:  #eb6834;
+
+  /* One hue in three ordered steps, so the tile beside a cost says how hard it
+     would be to stop. Dark is a bill you must pay, pale is a choice. */
+  --tier-keep: #184f95;
+  --tier-trim: #2a78d6;
+  --tier-cut:  #86b6ef;
+  --tier-ink:  #ffffff;
+
+  --good:      #0ca30c;
+  --in:        #006300;
+  --warning:   #fab219;
+  --out:       #d03b3b;
+  --warn-bg:   #fdf6e6;
+  --warn-line: #f0dcae;
+  --radius:    16px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171815;
-    --surface: #202220;
-    --line: #34362f;
-    --ink: #eceadf;
-    --ink-soft: #9a9a8e;
-    --accent: #7fb3a0;
-    --out: #e8897f;
-    --in: #7fc3a3;
-    --warn-bg: #2d2818;
-    --warn-line: #4d4326;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:      #0d0d0d;
+  --surface:   #1a1a19;
+  --ink:       #ffffff;
+  --ink-2:     #c3c2b7;
+  --muted:     #898781;
+  --line:      #2c2c2a;
+  --ring:      rgba(255, 255, 255, 0.09);
+  --shadow:    none;
+
+  --accent:    #3987e5;
+  --accent-2:  #d95926;
+
+  --tier-keep: #2a78d6;
+  --tier-trim: #5598e7;
+  --tier-cut:  #cde2fb;
+  --tier-ink:  #0b0b0b;
+
+  --good:      #0ca30c;
+  --in:        #0ca30c;
+  --warning:   #fab219;
+  --out:       #e66767;
+  --warn-bg:   #2a2415;
+  --warn-line: #4a3f1f;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--page);
   color: var(--ink);
-  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  /* Room for the bottom bar, plus the home indicator on a phone. */
+  padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px));
 }
 
-header.bar {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+main { max-width: 900px; margin: 0 auto; padding: 0 16px 32px; }
+
+/* --- header -------------------------------------------------------------- */
+header.bar { padding: 14px 16px 6px; max-width: 900px; margin: 0 auto; }
+header.bar .inner { display: flex; align-items: center; gap: 12px; }
+header.bar h1 { font-size: 1.05rem; font-weight: 640; letter-spacing: -0.01em; margin: 0; }
+header.bar .spacer { flex: 1; }
+
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--ring);
+  background: var(--surface); color: var(--ink-2); font-size: 1rem;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
 }
 
-header.bar .inner {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 0.6rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+/* The wide rail. Hidden on a phone, where the bottom bar does the job. */
+nav.rail { display: none; gap: 4px; }
+nav.rail a {
+  text-decoration: none; color: var(--ink-2); font-size: 0.92rem; font-weight: 560;
+  padding: 8px 15px; border-radius: 999px;
+}
+nav.rail a[aria-current] { background: var(--ink); color: var(--page); }
+
+/* The bottom bar. Four places to be, which is the whole point. */
+nav.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--surface); border-top: 1px solid var(--ring);
+  display: flex; padding: 8px 0 calc(10px + env(safe-area-inset-bottom, 0px));
+}
+nav.tabbar a {
+  flex: 1; text-decoration: none; color: var(--muted); text-align: center;
+  font-size: 0.68rem; font-weight: 560; display: grid; gap: 3px; justify-items: center;
+}
+nav.tabbar a[aria-current] { color: var(--ink); }
+nav.tabbar svg { width: 23px; height: 23px; }
+
+@media (min-width: 740px) {
+  nav.rail { display: flex; }
+  nav.tabbar { display: none; }
+  body { padding-bottom: 32px; }
 }
 
-header.bar h1 {
-  font-size: 1rem;
-  margin: 0;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-nav { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-left: auto; }
-
-nav a {
-  color: var(--ink-soft);
-  text-decoration: none;
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-}
-
-nav a:hover { background: var(--bg); color: var(--ink); }
-nav a[aria-current="page"] { color: var(--ink); background: var(--bg); font-weight: 600; }
-
-main { max-width: 1000px; margin: 0 auto; padding: 1rem 1rem 4rem; }
-
-h2 { font-size: 1.15rem; margin: 1.5rem 0 0.75rem; font-weight: 600; }
-h2:first-child { margin-top: 0; }
-
+/* --- cards --------------------------------------------------------------- */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1rem;
-  margin-bottom: 0.75rem;
+  background: var(--surface); border: 1px solid var(--ring);
+  border-radius: var(--radius); padding: 18px 18px; margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+.card.flush { padding: 0; overflow: hidden; }
+
+.sec {
+  font-size: 0.74rem; font-weight: 680; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--muted); margin: 22px 2px 8px;
 }
 
-.muted { color: var(--ink-soft); font-size: 0.875rem; }
-.stack { display: flex; flex-direction: column; gap: 0.35rem; }
-.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.spread { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+h2, h3 { letter-spacing: -0.015em; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1.02rem; }
+
+/* --- the hero ------------------------------------------------------------ */
+.state {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.79rem; font-weight: 640; color: var(--ink-2);
+}
+.state .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.state.ok   .dot { background: var(--good); }
+.state.warn .dot { background: var(--warning); }
+.state.bad  .dot { background: var(--out); }
+
+.figure {
+  font-size: 2.6rem; font-weight: 680; letter-spacing: -0.034em; line-height: 1.06;
+  font-variant-numeric: tabular-nums; margin: 10px 0 2px;
+}
+.figure.date { letter-spacing: -0.03em; }
+.delta { font-size: 0.95rem; font-weight: 620; font-variant-numeric: tabular-nums; }
+.delta.down { color: var(--out); }
+.delta.up { color: var(--in); }
+.delta .q { color: var(--muted); font-weight: 500; }
+
+/* --- rows ---------------------------------------------------------------- */
+.row { display: flex; align-items: center; gap: 12px; }
+.row.spread { justify-content: space-between; }
 .grow { flex: 1; min-width: 0; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.right { text-align: right; }
 
-.amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.item {
+  display: flex; align-items: center; gap: 13px;
+  padding: 12px 16px; border-top: 1px solid var(--line);
+}
+.item:first-child { border-top: 0; }
+/* A title and its caption are two lines wherever they appear, not only inside
+   a list row. Scoped to .item, "Signed in" ran into the email beside it. */
+.t { font-weight: 560; font-size: 0.95rem; display: block; }
+.s { font-size: 0.78rem; color: var(--muted); display: block; margin-top: 1px; }
+
+/* The tier tile. Two letters, because a logo would need fetching and a generic
+   glyph says less than the merchant's own initials. */
+.av {
+  width: 38px; height: 38px; border-radius: 12px; flex: none;
+  display: grid; place-items: center; color: var(--tier-ink);
+  font-size: 0.8rem; font-weight: 700; letter-spacing: -0.02em;
+}
+.av.keep { background: var(--tier-keep); }
+.av.trim { background: var(--tier-trim); }
+.av.cut  { background: var(--tier-cut); }
+
+/* --- money --------------------------------------------------------------- */
+.amount { font-variant-numeric: tabular-nums; font-weight: 620; white-space: nowrap; }
 .amount.out { color: var(--out); }
-.amount.in { color: var(--in); }
-
-.badge {
-  display: inline-block;
-  font-size: 0.72rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--ink-soft);
-  white-space: nowrap;
-}
-.badge.pending { background: var(--warn-bg); border-color: var(--warn-line); }
-.badge.transfer { border-color: var(--accent); color: var(--accent); }
-
-label { font-size: 0.8rem; color: var(--ink-soft); display: block; margin-bottom: 0.2rem; }
-
-input, select, button {
-  font: inherit;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.5rem 0.6rem;
-  /* 16px stops iOS zooming the page when a field is focused. */
-  font-size: 16px;
-}
-
-input:focus-visible, select:focus-visible, button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-button { cursor: pointer; font-weight: 500; }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-button.small { padding: 0.3rem 0.55rem; font-size: 0.85rem; }
-
-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-th { text-align: left; font-weight: 600; color: var(--ink-soft); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
-th, td { padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-td.right, th.right { text-align: right; }
-tr:last-child td { border-bottom: 0; }
-
-.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem; }
-
-.notice { padding: 0.6rem 0.8rem; border-radius: var(--radius); margin-bottom: 0.75rem; font-size: 0.9rem; }
-.notice.error { background: var(--warn-bg); border: 1px solid var(--warn-line); }
-
-.empty { text-align: center; color: var(--ink-soft); padding: 2rem 1rem; }
-
-/* On a phone the transaction table becomes one block per row. The table and
-   tbody have to become blocks too, otherwise table layout sizes to the widest
-   content and pushes the amount off the side of the screen. */
-@media (max-width: 640px) {
-  .table-responsive,
-  .table-responsive tbody { display: block; width: 100%; }
-  .table-responsive thead { display: none; }
-  .table-responsive tr {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.15rem 0.5rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--line);
-  }
-  /* min-width 0 lets a grid item shrink below its content, which is what makes
-     the truncation and wrapping below actually take effect. */
-  .table-responsive td { border: 0; padding: 0; min-width: 0; }
-  .table-responsive td[data-col="amount"] { grid-column: 2; grid-row: 1; text-align: right; }
-  .table-responsive td[data-col="description"] { grid-column: 1; grid-row: 1; font-weight: 500; }
-  .table-responsive td[data-col="meta"] {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    /* Account name plus badges, allowed to wrap onto a second line. */
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-  }
-}
-
-.login-wrap { max-width: 22rem; margin: 15vh auto; padding: 0 1rem; }
-
-/* The Today page. Two tones only: something is going the right way, or it is
-   not. Anything more granular is a traffic light nobody reads. */
+.amount.in  { color: var(--in); }
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
 .good { color: var(--in); }
 .warn { color: var(--out); }
 
-/* The runway date is the largest thing on the page on purpose. A date lands
-   against a real calendar in a way that a number of days does not. */
-.today-date { font-size: 2.6rem; font-weight: 700; line-height: 1.1; }
-@media (max-width: 24rem) {
-  .today-date { font-size: 2.1rem; }
+/* --- bars ---------------------------------------------------------------- */
+.split { display: flex; height: 11px; gap: 2px; }
+.split i:first-child { border-radius: 6px 2px 2px 6px; }
+.split i:last-child  { border-radius: 2px 6px 6px 2px; }
+.keys { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; font-size: 0.82rem; color: var(--ink-2); }
+.keys span { display: inline-flex; align-items: center; gap: 6px; }
+.keys i { width: 9px; height: 9px; border-radius: 2px; }
+.keys b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.meter { height: 10px; border-radius: 5px; background: var(--line); position: relative; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 5px; }
+
+/* --- callout ------------------------------------------------------------- */
+.nudge {
+  background: var(--surface); border: 1px solid var(--ring);
+  border-left: 3px solid var(--warning); border-radius: 14px;
+  padding: 15px 17px; margin-bottom: 12px; box-shadow: var(--shadow);
 }
+.nudge h3 { margin: 0; font-size: 0.97rem; }
+.nudge p { margin: 5px 0 0; font-size: 0.88rem; color: var(--ink-2); }
+
+/* --- controls ------------------------------------------------------------ */
+button, .btn {
+  font: inherit; font-weight: 620; font-size: 0.9rem;
+  border: 1px solid var(--ring); background: var(--surface); color: var(--ink);
+  border-radius: 999px; padding: 9px 17px; cursor: pointer; text-decoration: none;
+  display: inline-block;
+}
+button.primary, .btn.primary { background: var(--ink); color: var(--page); border-color: var(--ink); }
+button.small { padding: 6px 13px; font-size: 0.82rem; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+input, select, textarea {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--ring); border-radius: 10px; padding: 9px 12px; width: 100%;
+}
+label { font-size: 0.83rem; color: var(--ink-2); font-weight: 560; }
+
+.badge {
+  display: inline-block; font-size: 0.72rem; font-weight: 640; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-2); background: var(--page);
+  border: 1px solid var(--ring); border-radius: 999px; padding: 3px 9px;
+}
+
+/* --- tables, kept for the pages under Set up ----------------------------- */
+.table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 640; }
+tr:last-child td { border-bottom: 0; }
+
+.empty { color: var(--muted); font-size: 0.9rem; padding: 14px 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+a { color: var(--accent); }
+
+.notice { border-radius: 12px; padding: 12px 15px; margin: 10px 0; font-size: 0.9rem; }
+.notice.error { background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--ink); }
+
+.transfer { color: var(--muted); }
+.pending { font-style: italic; color: var(--muted); }
+
+details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font-size: 0.9rem; }

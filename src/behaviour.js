@@ -446,6 +446,11 @@ export async function whatToStop({
         label: row.name,
         raw_label: row.label,
         what_it_is: row.what_it_is,
+        // The tier itself, not just whether it is optional. The page shows how
+        // hard each cost would be to stop, and collapsing three tiers to a
+        // boolean here forced it to guess the third one back, which is a second
+        // copy of a classification src/costs.js owns.
+        tier: row.tier,
         essential: row.tier !== 'cut',
         // Fixed means it cannot simply be cancelled this month. It still shows,
         // because knowing the mortgage is 47,000 a year is worth knowing, but

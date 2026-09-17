@@ -41,12 +41,93 @@ const centsToText = (cents) => {
 };
 const abs = (value) => formatAmount(String(value).replace('-', ''));
 
+// Two letters from the name the household would recognise. A logo would need
+// fetching from somewhere and a generic glyph says less than the initials.
+function initialsOf(label) {
+  const words = String(label || '').replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/);
+  if (!words[0]) return '??';
+  const first = words[0];
+  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase();
+}
+
+// keep, trim or cut, straight from the server. src/costs.js owns classification
+// and no page reimplements it, so this only guards against an older payload.
+function tierOf(item) {
+  return ['keep', 'trim', 'cut'].includes(item.tier) ? item.tier : 'cut';
+}
+
 // The opening. One sentence someone can repeat to the other person in the
 // house without opening the app.
+//
+// docs/behaviour.md is firm that the runway is a DATE, in the largest type,
+// with the day count as a footnote: "68 days" is arithmetic, "23 November"
+// collides with a calendar you already have in your head. So the date wins the
+// hero whenever there is one.
+//
+// It does not always say what to do when there is not one, which is the
+// ordinary case for a household that is slightly short with cash in the bank.
+// Printing the balance there instead is the honest fallback: it is the number
+// the runway would have been computed from, it is true, and it is the thing you
+// would look up if the app did not exist. The state line above it carries the
+// direction so the figure is never read as good news on its own.
 function headline(position) {
   const box = document.getElementById('headline');
   box.innerHTML = '';
-  box.className = 'card stack';
+  box.className = 'card';
+
+  const behind = position.going_backwards;
+  const runsOut = Boolean(position.runway_date_friendly);
+
+  const state = el('span', { class: `state ${behind ? (runsOut ? 'bad' : 'warn') : 'ok'}` }, [
+    el('span', { class: 'dot' }),
+    el('span', { text: behind
+      ? (runsOut ? 'Spendable cash runs out' : 'Spending a little more than comes in')
+      : 'More is coming in than going out' }),
+  ]);
+
+  const figure = runsOut
+    ? el('div', { class: 'figure date', text: position.runway_date_friendly })
+    : el('div', { class: 'figure', text: money(position.spendable) });
+
+  // The footnote under the figure. A day count under a date, the direction
+  // under a balance. Never the word null, which is what both of these used to
+  // read when the projection did not reach zero.
+  const under = runsOut
+    ? el('div', { class: 'delta down' }, [
+        el('span', { text: `${position.runway_days} days ` }),
+        el('span', { class: 'q', text: 'from today, using the household plan' }),
+      ])
+    : el('div', { class: `delta ${behind ? 'down' : 'up'}` }, [
+        el('span', { text: `${behind ? '\u2193' : '\u2191'} ${abs(position.gap_per_month)} ` }),
+        el('span', { class: 'q', text: behind ? 'a month more out than in' : 'a month left over' }),
+      ]);
+
+  box.append(state, figure, under);
+
+  // What goes out, split into the two things it is. Both leave the account, but
+  // one is consumed and one buys down what is owed, and only one of them is a
+  // monthly choice.
+  const livingCents = Math.round(Number(position.living_per_month) * 100);
+  const debtCents = Math.round(Number(position.debt_per_month) * 100);
+  if (livingCents > 0 || debtCents > 0) {
+    box.append(
+      el('div', { class: 'sec', style: 'margin:20px 0 6px', text: 'Where it goes each month' }),
+      el('div', { class: 'split' }, [
+        el('i', { style: `flex:${Math.max(livingCents, 1)};background:var(--accent)` }),
+        debtCents > 0 ? el('i', { style: `flex:${debtCents};background:var(--accent-2)` }) : null,
+      ]),
+      el('div', { class: 'keys' }, [
+        el('span', {}, [el('i', { style: 'background:var(--accent)' }),
+          el('span', { text: 'Living ' }), el('b', { text: money(position.living_per_month) })]),
+        debtCents > 0 ? el('span', {}, [el('i', { style: 'background:var(--accent-2)' }),
+          el('span', { text: 'Paying off debt ' }), el('b', { text: money(position.debt_per_month) })]) : null,
+      ]),
+      el('p', { class: 'muted small', style: 'margin:12px 0 0', text:
+        `${money(position.in_per_month)} comes in. `
+        + `The plan includes ${money(position.recurring_essential_per_month)} a month of recurring `
+        + `essentials, ${money(position.discretionary_per_month)} discretionary, and active commitments.` }),
+    );
+  }
 
   // What the household plan leaves out, said here rather than only on the
   // Forecast page. "Out" is the plan's figure: recurring essentials, the
@@ -55,71 +136,19 @@ function headline(position) {
   // dollar of it, and a headline that does not mention that is describing a
   // household nobody lives in.
   const excluded = Number(position.optional_history_excluded ?? 0);
-  const excludedNote = excluded > 0
-    ? el('p', { class: 'muted', style: 'margin:0' , text:
-        `"Out" is the household plan. It does not include the ${money(position.optional_history_excluded)} a month `
-        + `of optional day to day spending recent history shows, which the plan replaces with an allowance of `
-        + `${money(position.discretionary_per_month)}. Set that allowance on the Forecast page.` })
-    : null;
-
-  if (!position.going_backwards) {
-    box.append(
-      el('div', { class: 'muted', text: 'Where you stand' }),
-      el('div', { style: 'font-size:1.6rem;font-weight:600', text: `${money(position.in_per_month)} in, ${money(position.out_per_month)} out` }),
-      el('p', { style: 'margin:0 0 0.5rem', text: 'More is coming in than going out. The gap is going the right way.' }),
-      excludedNote,
-    );
-    return;
+  if (excluded > 0) {
+    box.after(el('div', { class: 'nudge' }, [
+      el('h3', { text: 'One thing needs deciding' }),
+      el('p', { text:
+        `The plan assumes you spend ${money(position.discretionary_per_month)} a month on the `
+        + `optional things. Recently that has been about ${money(position.optional_history_per_month)} `
+        + 'a month, so the forecast is kinder than real life until you pick a number.' }),
+      el('a', { class: 'btn', href: '/forecast', text: 'Pick a number', style: 'margin-top:11px' }),
+    ]));
   }
 
-  box.append(
-    el('div', { class: 'muted', text: 'Spendable cash runs out on' }),
-    // The biggest thing on the page, and it is a date. Everything else is
-    // context for this.
-    el('div', { style: 'font-size:2.6rem;font-weight:700;line-height:1.1',
-      text: position.runway_date_friendly ?? 'not inside the next year' }),
-    // Both of these are null when the projection never reaches zero, which is
-    // the ordinary case for a household that is only slightly short. Printing
-    // the raw value put the word "null" on the page under a date that was not
-    // a date.
-    el('div', { class: 'muted', text: position.runway_days === null
-      ? 'Going backwards, but there is enough cash that the projection does not reach zero inside a year.'
-      : `${position.runway_days} days from today, using the household plan` }),
-    // The way out, offered where the bad news is. A date with no next step is
-    // just something to feel bad about.
-    el('a', { href: '/plan', text: 'What it would take to last', style: 'align-self:flex-start' }),
-    el('hr'),
-    el('div', { class: 'row', style: 'gap:1.5rem;flex-wrap:wrap' }, [
-      el('div', {}, [
-        el('div', { class: 'muted', text: 'Coming in' }),
-        el('div', { class: 'amount', style: 'font-size:1.1rem', text: `${money(position.in_per_month)} a month` }),
-      ]),
-      el('div', {}, [
-        el('div', { class: 'muted', text: 'Going out' }),
-        el('div', { class: 'amount out', style: 'font-size:1.1rem', text: `${money(position.out_per_month)} a month` }),
-        // Split, because these are not the same kind of thing. Both leave the
-        // account and both shorten the runway, but one is consumed and one buys
-        // down what is owed, and only one of them is a monthly choice.
-        position.debt_per_month && Number(position.debt_per_month) > 0
-          ? el('div', { class: 'muted', style: 'font-size:0.8rem', text:
-              `${money(position.living_per_month)} living, ${money(position.debt_per_month)} paying down debt` })
-          : null,
-      ]),
-      el('div', {}, [
-        el('div', { class: 'muted', text: 'Short by' }),
-        el('div', { class: 'amount out', style: 'font-size:1.1rem;font-weight:700', text: `${money(position.gap_per_month)} a month` }),
-      ]),
-    ]),
-    el('p', { class: 'muted', style: 'margin-bottom:0' , text:
-      `That is ${money(centsToText(position.daily_gap_cents))} a day more going out than coming in. `
-      + `The plan includes ${money(position.recurring_essential_per_month)} a month of recurring essentials, `
-      + `${money(position.discretionary_per_month)} discretionary, and active commitments.` }),
-  );
-
-  if (excludedNote) box.append(excludedNote);
-
   for (const warning of position.warnings ?? []) {
-    box.append(el('p', { class: 'warn', text: warning.message }));
+    box.append(el('p', { class: 'warn small', style: 'margin-bottom:0', text: warning.message }));
   }
 }
 
@@ -335,16 +364,23 @@ async function whatToStop(data) {
       recalculate();
     });
     return el('label', {
-      style: 'display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:0.15rem 0.6rem;'
-        + 'align-items:baseline;padding:0.55rem 0;border-bottom:1px solid var(--line);cursor:pointer',
+      class: 'item',
+      style: 'display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:0.15rem 0.7rem;'
+        + 'align-items:center;cursor:pointer',
     }, [
       el('div', { style: 'grid-row:1/span 2' }, [tick]),
-      el('div', { class: 'truncate', style: 'font-weight:500', text: item.label }),
+      // The tile says how hard this would be to stop, which the app has always
+      // known and has never shown. One hue in three ordered steps: dark is a
+      // bill you must pay, pale is a choice. Ordered, so it is a real encoding
+      // rather than decoration, and the caption under the list says so.
+      el('div', { class: `av ${tierOf(item)}`, style: 'grid-row:1/span 2',
+        text: initialsOf(item.label) }),
+      el('div', { class: 'truncate t', text: item.label }),
       // The year figure is the loud one. A subscription is priced monthly
       // because a small monthly number is easy to say yes to, and showing the
       // year next to it undoes exactly that framing.
       el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: `${money(item.per_year)} a year` }),
-      el('div', { class: 'muted truncate', style: 'font-size:0.8rem', text: item.what_it_is || item.category || '' }),
+      el('div', { class: 'truncate s', text: item.what_it_is || item.category || '' }),
       // No per row day estimate. Working it out in closed form ignores the
       // paydays in between and came out about double what this app's own
       // projection says, and two numbers that disagree are worse than one.
@@ -406,7 +442,7 @@ function decisions(list, watchable) {
 
   const what = el('input', { placeholder: 'What will change', style: 'flex:2;min-width:10rem' });
   const when = el('input', { placeholder: 'When exactly (the trigger)', style: 'flex:2;min-width:10rem' });
-  const worth = el('input', { placeholder: '$ a month', style: 'flex:1;min-width:6rem' });
+  const worth = el('input', { placeholder: '$ a month', style: 'flex:1;min-width:8rem' });
 
   // Naming the place is what makes the decision checkable. Without it this is a
   // note to self, and the app says so rather than pretending otherwise.
@@ -416,7 +452,7 @@ function decisions(list, watchable) {
       el('option', { value: item.merchant_key ?? '', text: `Watch: ${item.label}` })),
   ]);
 
-  const add = el('button', { class: 'primary', text: 'Decide it' });
+  const add = el('button', { class: 'primary', text: 'Decide it', style: 'white-space:nowrap' });
   add.addEventListener('click', async () => {
     if (!what.value.trim()) return showError('Say what will change');
     add.disabled = true;
@@ -444,8 +480,10 @@ function decisions(list, watchable) {
     // The "when" is not decoration. A decision paired with the situation that
     // triggers it is acted on far more often than the same decision on its own.
     el('div', { class: 'muted', text: 'A decision with a "when" attached gets done. "Spend less on takeaway" does not. "No delivery on weeknights, we cook what is in the fridge" does.' }),
-    el('div', { class: 'row' }, [what, when]),
-    el('div', { class: 'row' }, [watch, worth, add]),
+    // Wraps rather than squeezing. Five controls on one phone width turned
+    // every placeholder into a truncated fragment.
+    el('div', { class: 'row', style: 'flex-wrap:wrap' }, [what, when]),
+    el('div', { class: 'row', style: 'flex-wrap:wrap' }, [watch, worth, add]),
   ]);
 
   if (list.length) {
