@@ -390,3 +390,72 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 @media (max-width: 520px) {
   .picks { grid-template-columns: 1fr 1fr; }
 }
+
+/* --- the cash curve ------------------------------------------------------ */
+/* The plot is stretched to the card's width, so nothing inside it carries text:
+   the labels are HTML on top, positioned as a share of the box. */
+.cash { position: relative; margin-top: 16px; }
+.cash .plot { width: 100%; height: 100%; display: block; overflow: visible; }
+
+.cash .ref, .cash .end, .cash .zero, .cash .mark b, .cash .tip {
+  position: absolute; font-size: 0.73rem; white-space: nowrap; pointer-events: none;
+}
+.cash .end b, .cash .tip b { font-weight: 660; color: var(--ink); }
+.cash .end span { color: var(--muted); }
+/* Today's level, on the left where the line starts. The end figure sits on the
+   right where it ends, so the two never meet. */
+/* Punched through the curve rather than dodged around it. A sawtooth crosses
+   its own starting level every fortnight, so there is no side of the line that
+   is reliably clear, and a label that moves about is worse than one that sits
+   still and wins. */
+.cash .ref, .cash .zero, .cash .end {
+  background: var(--surface); padding: 0 5px; border-radius: 3px;
+}
+.cash .ref { left: -5px; color: var(--muted); }
+.cash .ref.above { transform: translateY(-150%); }
+.cash .ref.below { transform: translateY(50%); }
+.cash .zero { left: -5px; color: var(--out); font-weight: 620; transform: translateY(-150%); }
+.cash .end { right: -5px; transform: translateY(-140%); text-align: right; }
+.cash .end.down b { color: var(--out); }
+
+.cash .mark { position: absolute; transform: translate(-50%, -50%); }
+.cash .mark i {
+  display: block; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--out); box-shadow: 0 0 0 2px var(--surface);
+}
+.cash .mark b {
+  left: 50%; top: 11px; transform: translateX(-50%);
+  color: var(--out); font-weight: 660;
+}
+
+/* The hover layer. Hidden until a pointer is actually over the plot, so the
+   chart at rest is the shape and nothing else. */
+.cash .skin { position: absolute; inset: 0; cursor: crosshair; touch-action: pan-y; }
+.cash .cursor, .cash .tip { opacity: 0; transition: opacity 0.12s; }
+.cash.hovering .cursor, .cash.hovering .tip { opacity: 1; }
+.cash .cursor {
+  position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink-2);
+  pointer-events: none;
+}
+.cash .cursor::after {
+  content: ''; position: absolute; top: var(--dot); left: 50%;
+  width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--surface);
+}
+/* Sits beside the point it describes, inside the plot, flipping away from
+   whichever edge it would otherwise run past. */
+.cash .tip {
+  background: var(--surface); border: 1px solid var(--ring); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 7px 10px; line-height: 1.35;
+  display: flex; flex-direction: column; z-index: 2;
+  transform: translate(10px, -108%);
+}
+.cash .tip.flip { transform: translate(calc(-100% - 10px), -108%); }
+.cash .tip.under { transform: translate(10px, 12%); }
+.cash .tip.flip.under { transform: translate(calc(-100% - 10px), 12%); }
+.cash .tip span { color: var(--muted); font-size: 0.7rem; }
+.cash .tip span.good { color: var(--in); }
+.cash .tip span.warn { color: var(--out); }
+
+/* Room for the labels that sit above the line at either end. */
+.cash { padding-top: 6px; }

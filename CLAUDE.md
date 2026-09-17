@@ -453,6 +453,19 @@ the tallest thing on it, because one 11,000 dollar month flattens the other
 eleven into stubs and those eleven are the reason for drawing it. Anything above
 the ceiling, a month or the allowance line, is drawn cut off and said in words.
 
+**There is one cash chart, `public/chart.js`.** Home and Forecast each drew the
+same projection their own way, which is two pictures of one thing free to
+disagree, and the copy on the Forecast page was still painting its axis labels
+`var(--ink-soft)`, a token that stopped existing in the restyle. The band is
+measured from today's balance rather than filled down to the axis: building up
+and running down are then an area and a colour instead of a sign on a number,
+and a fortnight that dips before payday and recovers after is visible there and
+nowhere else. Today's level and zero are two annotated levels on one dollar
+scale, which is not two axes. Zero is drawn only when the money comes near it,
+and past a crossing the endpoint figure is dropped, because no account holds
+minus two hundred dollars and printing it beside the date the money ran out is a
+second, wronger answer to the same question.
+
 **A tier ramp needs ink per step, not per theme.** `--tier-cut` is pale by design
 and carried white text at 2.1 to 1, which is unreadable, on every optional
 merchant on the Spending page. `--ink-keep`, `--ink-trim` and `--ink-cut` are

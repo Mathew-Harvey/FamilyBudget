@@ -207,7 +207,12 @@ nothing has been saved at is never labelled as one somebody chose.
 Ordering is a behavioural decision too. The Today page is arranged so that
 closing it after the first screen still leaves you with the thing that matters:
 
-1. **The date the money runs out**, and the gap per month.
+1. **The date the money runs out**, and the gap per month, with the curve that
+   date sits on. The headline is a point on that curve: a runway date is where
+   it crosses zero, a balance is where it starts. Drawing it says the same thing
+   in the one dimension a figure cannot carry, which is time, and the band
+   either side of today's level answers "are we building up or running down"
+   without a word.
 2. **Did it stick**, which is the feedback on the last decision.
 3. **What grew**, naming places rather than categories, because a category
    cannot be cancelled and a place can.

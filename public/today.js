@@ -24,6 +24,7 @@
 //                                self interested choice as well as the right
 //                                one.
 import { api, el, formatAmount, renderNav, showError } from '/app.js';
+import { cashChart } from '/chart.js';
 
 renderNav('/today');
 
@@ -70,7 +71,7 @@ function tierOf(item) {
 // the runway would have been computed from, it is true, and it is the thing you
 // would look up if the app did not exist. The state line above it carries the
 // direction so the figure is never read as good news on its own.
-function headline(position) {
+function headline(position, curve) {
   const box = document.getElementById('headline');
   box.innerHTML = '';
   box.className = 'card';
@@ -103,6 +104,18 @@ function headline(position) {
       ]);
 
   box.append(state, figure, under);
+
+  // The shape of it, which is the one thing no figure on this page carries.
+  //
+  // The headline is a point on this curve: a runway date is where it crosses
+  // zero, a balance is where it starts. Drawing the curve under it says the
+  // same thing in the dimension the numbers cannot, which is time. The band is
+  // measured from today's level, so building up and running down are an area
+  // and a colour rather than a sign on a number, and a fortnight that dips
+  // before payday and recovers after is visible here and nowhere else.
+  if (curve?.series?.length > 1) {
+    box.append(cashChart(curve.series, { height: 190, runwayDate: curve.runway_date }));
+  }
 
   // In against out, on one scale, so the gap is a length rather than a
   // sentence. This replaced "X comes in, the plan includes Y of recurring
@@ -527,7 +540,7 @@ function decisions(list, watchable) {
 async function load() {
   try {
     const data = await api('/api/today');
-    headline(data.position);
+    headline(data.position, data.curve);
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
     debtsSection(data.debts);

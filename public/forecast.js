@@ -1,55 +1,9 @@
 import { api, el, formatAmount, formatDate, renderNav, showError } from '/app.js';
+import { cashChart } from '/chart.js';
 
 renderNav('/forecast');
 
 const excludedLuxuryCommitments = new Set();
-
-// A plain inline SVG line chart. No chart library, and it reads in both themes
-// because it uses the same custom properties as everything else.
-function chart(series, bufferText) {
-  const width = 720;
-  const height = 220;
-  const pad = { top: 12, right: 12, bottom: 22, left: 8 };
-
-  const values = series.map((point) => Number(point.balance_cents));
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
-  const span = max - min || 1;
-
-  const x = (i) => pad.left + (i / (series.length - 1)) * (width - pad.left - pad.right);
-  const y = (value) => pad.top + (1 - (value - min) / span) * (height - pad.top - pad.bottom);
-
-  const line = values.map((value, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
-  const area = `${line} L${x(values.length - 1).toFixed(1)},${y(Math.max(min, 0)).toFixed(1)} L${x(0).toFixed(1)},${y(Math.max(min, 0)).toFixed(1)} Z`;
-
-  const zeroY = y(0).toFixed(1);
-  const firstNegative = values.findIndex((value) => value < 0);
-
-  const svg = `
-    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img"
-         aria-label="Projected spendable cash. ${bufferText}">
-      <defs>
-        <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/>
-          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/>
-        </linearGradient>
-      </defs>
-      <path d="${area}" fill="url(#fill)"/>
-      <line x1="${pad.left}" y1="${zeroY}" x2="${width - pad.right}" y2="${zeroY}"
-            stroke="var(--out)" stroke-width="1" stroke-dasharray="3 3" opacity="0.8"/>
-      <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
-            stroke-linejoin="round" stroke-linecap="round"/>
-      ${firstNegative > 0 ? `<circle cx="${x(firstNegative).toFixed(1)}" cy="${y(values[firstNegative]).toFixed(1)}" r="4" fill="var(--out)"/>` : ''}
-      <text x="${pad.left}" y="${height - 6}" font-size="11" fill="var(--ink-soft)">${series[0].date}</text>
-      <text x="${width - pad.right}" y="${height - 6}" font-size="11" fill="var(--ink-soft)"
-            text-anchor="end">${series[series.length - 1].date}</text>
-      <text x="${pad.left}" y="${Number(zeroY) - 4}" font-size="11" fill="var(--out)">zero</text>
-    </svg>`;
-
-  const holder = el('div');
-  holder.innerHTML = svg;
-  return holder;
-}
 
 function commitmentRow(commitment) {
   const toggle = el('input', {
@@ -187,7 +141,7 @@ async function load() {
 
     const chartHolder = document.getElementById('chart');
     chartHolder.innerHTML = '';
-    chartHolder.append(chart(data.series, `Runway ${data.runway_days ?? 'beyond the window'}`));
+    chartHolder.append(cashChart(data.series, { height: 240, runwayDate: data.runway_date }));
 
     const upcoming = document.getElementById('upcoming');
     upcoming.innerHTML = '';

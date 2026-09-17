@@ -50,6 +50,26 @@ async function changePoint(client = { query }) {
   return { date: null, source: 'nothing to compare against yet' };
 }
 
+// How far forward the Home page draws, and the curve to draw.
+//
+// Long enough to hold the answer and no longer. When the money reaches zero the
+// chart is about that crossing, so it runs a few weeks past it rather than
+// ending on it: a line that stops exactly where it fails looks like the edge of
+// the chart rather than the edge of the money. When it does not, half a year is
+// as far as anyone can act on, and a 400 day curve on the front page is a
+// picture of a household that does not exist yet.
+function cashCurve(projection) {
+  const horizon = projection.runway_days === null
+    ? 182
+    : Math.min(projection.runway_days + 21, projection.days);
+  return {
+    runway_date: projection.runway_date,
+    series: projection.series
+      .slice(0, horizon + 1)
+      .map((point) => ({ date: point.date, balance_cents: point.balance_cents })),
+  };
+}
+
 behaviourRouter.get('/', async (req, res, next) => {
   try {
     const window = windowFrom(req);
@@ -73,6 +93,7 @@ behaviourRouter.get('/', async (req, res, next) => {
 
     res.json({
       position: here,
+      curve: cashCurve(projection),
       change_point: point,
       stuck,
       movers: moved,
