@@ -477,6 +477,19 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**The pay cycle is load bearing and envelopes are optional, so the page says
+so.** Two features shared one page as two equal forms. The cycle cuts history
+into pay periods, it is what the fortnight card on Home is measured against, and
+it is the income the forecast projects; envelopes are a method this household has
+never used. The cycle leads, and it says whether it still agrees with what the
+pay has actually been doing, which is the one question worth asking about it: the
+figure someone sets always wins precisely because a job change makes the past a
+bad guide, and that is exactly when the app should say the two have parted
+company rather than quietly projecting the old wage forever. An empty envelope
+list explains what they are and that nothing is wrong with not having any, rather
+than reading as an unfinished setup. Removing a bucket has had an endpoint all
+along and no page that called it.
+
 **Only things that call the Claude API belong on the Insights page.** It had
 collected expected income, things that could be sold, and hand entered debts,
 none of which have anything to do with analysis, all of them under a switch that

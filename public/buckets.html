@@ -3,55 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Buckets</title>
+<title>Pay cycle and envelopes</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <main>
   <div id="notice"></div>
-
-  <div class="card stack" id="cycleCard">
-    <strong>Pay cycle</strong>
-    <div class="filters">
-      <div><label for="cadence">How often</label><select id="cadence" style="width:100%">
-        <option value="weekly">Weekly</option>
-        <option value="fortnightly">Fortnightly</option>
-        <option value="monthly">Monthly</option>
-      </select></div>
-      <div><label for="anchor">A known payday</label><input id="anchor" type="date" style="width:100%"></div>
-      <div><label for="expected">Expected income each period</label><input id="expected" type="number" step="0.01" style="width:100%" placeholder="optional"></div>
-    </div>
-    <div class="row">
-      <button class="primary" id="saveCycle">Save cycle</button>
-      <span class="muted" id="cycleState"></span>
-    </div>
-    <div class="muted" id="suggestion"></div>
-  </div>
-
-  <div class="card stack" id="summary"></div>
-
-  <div class="row" style="margin-bottom:0.75rem">
-    <label for="period" style="margin:0">Period</label>
-    <select id="period"></select>
-    <button id="applyTargets">Fill from targets</button>
-  </div>
-
-  <div id="list"><p class="muted">Loading...</p></div>
-
-  <h2>Add a bucket</h2>
-  <div class="card stack">
-    <div class="filters">
-      <div><label for="newName">Name</label><input id="newName" style="width:100%" placeholder="Groceries"></div>
-      <div><label for="newTarget">Target each period</label><input id="newTarget" type="number" step="0.01" style="width:100%" placeholder="0.00"></div>
-      <div><label for="newCarry">Leftover</label><select id="newCarry" style="width:100%">
-        <option value="true">Rolls over</option><option value="false">Resets each period</option>
-      </select></div>
-    </div>
-    <div><label for="newCategories">Categories it covers (hold to pick several)</label>
-      <select id="newCategories" multiple size="8" style="width:100%"></select></div>
-    <div class="row"><button class="primary" id="createBucket">Create bucket</button></div>
-  </div>
+  <div id="cycle"></div>
+  <div id="envelopes"></div>
 </main>
 <script type="module" src="/buckets.js"></script>
 </body>
