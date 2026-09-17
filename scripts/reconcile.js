@@ -11,7 +11,7 @@
 import { query, closePool } from '../src/db.js';
 import { buildForecastContext } from '../src/forecast.js';
 import { matchKeyFor } from '../src/commitments.js';
-import { position } from '../src/behaviour.js';
+import { position, debts } from '../src/behaviour.js';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -313,6 +313,19 @@ check('every commitment matches something that was actually charged',
 check('the household plan is fully accounted for by named choices',
   Math.abs(explainedPlan - Number(here.out_per_month)) < 5,
   `${money(explainedPlan)} explained against ${money(here.out_per_month)} shown`);
+
+// The debts card sits directly under the "Debt" figure on the front page and
+// reads as its breakdown, so it has to be one. It was not: the card measured
+// the same payments a second way, off the flows, while the figure above came
+// from the plan. On a card whose payments vary the two part company, and the
+// Bendigo card put them 291.72 apart with the clear date worked out from a
+// rate nothing else in the app uses.
+const debtRows = await debts({ window: WINDOW, costs });
+const debtCardTotal = debtRows.reduce((total, row) => total + Number(row.per_month || 0), 0);
+check('the debts card adds up to the debt figure above it',
+  Math.abs(debtCardTotal - Number(here.debt_per_month)) < 1,
+  `${money(debtCardTotal.toFixed(2))} across ${debtRows.length} accounts`
+  + ` against ${money(here.debt_per_month)} shown`);
 
 // 9. Spending nobody has explained. Not a failure, but worth knowing.
 console.log('\nStill unexplained');

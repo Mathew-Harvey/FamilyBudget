@@ -782,6 +782,42 @@ into a maxim: "No delivery on weeknights" is a plan, "Spend less on takeaway" is
 a mood. The example makes the same point, tells you what to type in the two
 fields below it, and claims nothing the app would have to defend.
 
+**The debts card is the breakdown of the figure above it, so it has to be one.**
+It was not. `position.debt_per_month` comes from the plan, the commitments the
+runway is built from; `debts()` measured the same payments a second way, off
+the flows. On a debt whose payments vary the two part company: the Bendigo card
+was 1,166.87 a month in the plan and 875.15 in the flows, so the front page read
+"Debt 3,652.80" over a card summing to 3,361.08, and said the card would clear
+on 20 November using a rate nothing else in the app uses. `debts()` takes the
+cost model now and reports the plan, matching a commitment to an account through
+`matchKeyFor` over the payment labels in JavaScript, never by joining the two key
+kinds in SQL. A debt the plan does not carry keeps its measured rate and says so
+in `rate_from`. Reconcile checks the sum, and that check fails without the fix.
+
+**Income that has not started is not income.** `position()` already kept a
+stream with an end date out of the ongoing monthly rate; a stream that had not
+begun went straight in. Entering a second wage of 2,000 a fortnight starting in
+January moved the front page from "14,045.89 in" to "18,394.46 in" on the day it
+was typed, and told a household four months away from that money that it had
+11,172.87 a month spare. Same rule, other end: it belongs on the cash curve from
+the day it starts, and the page says one is coming rather than folding it into
+the rate.
+
+**Money out is money out, whatever the category says.** `thisPeriod` split the
+period by category kind: income kind to income, `expense or null` to out. A
+positive row with no category fell through the second and had its negation added
+to spending, so a pay that arrived before anyone filed it would have been missing
+from income and subtracting from what went out. Every deposit on this household
+is categorised, which is exactly why it would have gone unnoticed. The filter
+tests the sign now.
+
+**Expected income was lost twice, in two different places.** It was on the
+Insights page under a switch saying analysis was off, so it moved to `/expected`,
+where it was reachable from one row of the Set up index and was asked after
+again. It is linked from the two pages that show the income it changes: the
+Forecast page's "Money coming in" row, and the front page beside the "In" bar,
+which says whether any has been entered. A feature nobody can find is not built.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

@@ -184,7 +184,7 @@ export async function leanPlan({
     // leaving it off because no commitment row exists would be the one omission
     // people would notice.
     kept: [
-      ...(await debtServicing(client, window)),
+      ...(await debtServicing(client, window, costs)),
       ...commitments
         .filter((row) => row.tier !== 'cut' && !debtKeys.has(row.match_key))
         .map((row) => ({ what: row.name, per_month: row.per_month, per_month_cents: row.per_month_cents })),
@@ -205,9 +205,9 @@ export async function leanPlan({
 
 // What is being paid to our own debts, per account, whether or not any of it
 // became a commitment.
-async function debtServicing(client, window) {
+async function debtServicing(client, window, costs = null) {
   const { debts } = await import('./behaviour.js');
-  const rows = await debts({ client, window });
+  const rows = await debts({ client, window, costs });
   return rows
     .filter((row) => row.regular && toCents(row.per_month) > 0)
     .map((row) => ({

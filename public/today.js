@@ -77,7 +77,7 @@ function tierOf(item) {
 // the runway would have been computed from, it is true, and it is the thing you
 // would look up if the app did not exist. The state line above it carries the
 // direction so the figure is never read as good news on its own.
-function headline(position, curve) {
+function headline(position, curve, expecting = []) {
   const box = document.getElementById('headline');
   box.innerHTML = '';
   box.className = 'card';
@@ -160,14 +160,28 @@ function headline(position, curve) {
         debtCents > 0 ? el('span', {}, [el('i', { style: 'background:var(--accent-2)' }),
           el('span', { text: 'Debt ' }), el('b', { text: money(position.debt_per_month) })]) : null,
       ]),
+      // Income that has not started yet belongs beside the income that has.
+      // A second job, a wage beginning in March: the app has carried these all
+      // along and put them behind one row of the Set up index, which is where
+      // they were looked for twice and not found. Said here, next to the "In"
+      // this page is measured against, because that is the bar they change.
+      el('p', { class: 'muted small', style: 'margin:12px 0 0' }, [
+        el('span', { text: expecting?.length
+          ? `${expecting.length} more coming that has not started yet. `
+          : 'Expecting a wage that has not started yet, or a second job? ' }),
+        el('a', { href: '/expected', text: expecting?.length ? 'Check it' : 'Add it to the forecast' }),
+      ]),
     );
   }
 
   // Where the plan and the spending disagree, said on the page that leads with
   // the plan's own figure.
   //
-  // "Out" is recurring essentials, the allowance and the commitments, so
-  // optional day to day spending enters it only through the allowance. An
+  // "Out" is every essential, the allowance and the commitments, so optional
+  // day to day spending enters it only through the allowance. Essentials here
+  // means the irregular ones too, the vets and registrations that never reach
+  // three dates: they are 106.24 a month on this household and leaving them out
+  // of this sentence made it describe a smaller figure than the one drawn. An
   // allowance nobody has chosen now follows what that spending has actually
   // been, which makes this silent, as it should be: there is nothing to warn
   // about when the plan and the household agree. It fires when someone has set
@@ -253,7 +267,10 @@ function fortnight(period) {
       ]),
       el('p', { class: 'muted small', style: 'margin:0', text:
         (period.has_income
-          ? `${money(period.off_pace)} ${over ? 'past' : 'short of'} an even spend by now`
+          // "under", not "short of". Being below an even spend is the good
+          // case and this line sat under a green head saying the pay was still
+          // unspent, so the one word was arguing with the rest of the card.
+          ? `${money(period.off_pace)} ${over ? 'past' : 'under'} an even spend by now`
           : `No pay has landed this ${period.unit} yet`)
         + (period.still_to_come && Number(period.still_to_come) > 0
           ? `, and the plan expects ${money(period.still_to_come)} more before payday.`
@@ -625,7 +642,7 @@ function decisions(list, watchable) {
 async function load() {
   try {
     const data = await api('/api/today');
-    headline(data.position, data.curve);
+    headline(data.position, data.curve, data.expecting);
     fortnight(data.period);
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);

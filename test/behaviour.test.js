@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
 import { priceIn, friendlyDate, didItStick, movers, position, tradeOff, whatToStop, debts, thisPeriod } from '../src/behaviour.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
+import { forecast } from '../src/forecast.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
 import { daysAgo, addDays, today } from '../src/dates.js';
 
@@ -96,6 +97,36 @@ test('a temporary first pay moves the cash curve but not ongoing monthly income'
 
   const here = await position({ client: pool });
   assert.equal(here.in_per_month, '1000.00');
+});
+
+test('a wage that has not started yet is on the curve but not in monthly income', async () => {
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await pool.query(
+    "insert into balances (account_id, balance_date, balance) values ($1, current_date, '1000.00')",
+    [account.id],
+  );
+  await setPayCycle('monthly', daysAgo(400), '1000.00', pool);
+  // Ongoing, confirmed, no end date: the only thing keeping it out of today's
+  // income is that it has not begun. Without that check the front page told a
+  // household four months from a second wage that it already had it.
+  await pool.query(
+    `insert into expected_income
+       (label, amount, cadence_days, starts_on, confidence)
+     values ('Second wage', '2000.00', 14, $1, 'likely')`,
+    [addDays(today(), 110)],
+  );
+
+  const here = await position({ client: pool });
+  assert.equal(here.in_per_month, '1000.00');
+
+  // And it still reaches the curve, on the day it starts and not before.
+  const projection = await forecast({ days: 200, client: pool });
+  const paydays = projection.series
+    .flatMap((point) => point.events.filter((event) => event.kind === 'expected_income')
+      .map(() => point.date));
+  assert.ok(paydays.length > 0, 'the wage should still be projected');
+  assert.equal(paydays[0], addDays(today(), 110));
 });
 
 test('a fortnightly commitment does not look like a rise just because the windows differ', async () => {

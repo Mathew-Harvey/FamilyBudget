@@ -203,9 +203,13 @@ function renderAssumes() {
   box.innerHTML = '';
 
   const rows = [
+    // The link to the pay that has not started yet. A wage beginning in March
+    // is this row's future and it changes the curve above, and it was reachable
+    // from one row of the Set up index and nowhere else.
     assumption('Money coming in',
       `${data.expected_income.source}, ${data.cycle?.cadence || 'each period'}`,
-      money(data.expected_income.amount)),
+      money(data.expected_income.amount),
+      { href: '/expected', text: 'Expecting more?' }),
     assumption('Essential spending',
       `a day, from the last ${data.spend_window_days} days`,
       money(rate.essential_per_day)),

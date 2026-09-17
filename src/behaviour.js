@@ -127,11 +127,19 @@ export async function position({
         ? toCents(view.expected_income.amount)
         : centsPerMonth(toCents(view.expected_income.amount), view.cycle.cadence === 'fortnightly' ? 14 : 7))
     : 0;
+  const asOf = householdToday();
   const streamsMonthly = (view.expected_income_streams ?? [])
     // A stream with an end date is temporary, including a one-time partial
     // first pay. It belongs on the cash curve, not in the ongoing monthly
     // income figure used to decide whether the household is going backwards.
     .filter((stream) => stream.confidence !== 'possible' && !stream.ends_on)
+    // And a stream that has not started is not income yet. Same rule, other
+    // end. A second wage beginning on 5 January was counted in full from the
+    // day it was entered: the front page read "18,394.46 in" against a real
+    // 14,045.89 and told a household four months away from that money that it
+    // had 11,172.87 a month spare. It is on the curve from the day it starts,
+    // which is where a future wage belongs, and the page says one is coming.
+    .filter((stream) => !stream.starts_on || String(stream.starts_on).slice(0, 10) <= asOf)
     .reduce((total, stream) => total + centsPerMonth(toCents(stream.amount), Number(stream.cadence_days) || 30), 0);
   const inMonthly = cycleMonthly + streamsMonthly;
 
@@ -557,7 +565,11 @@ export async function intentions({ client = { query } } = {}) {
 // finance and optimistic for a credit card. It says so rather than pretending
 // to an accuracy it does not have: the real schedule depends on a rate this app
 // is not told.
-export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
+export async function debts({
+  client = { query },
+  window = DEFAULT_SPEND_WINDOW_DAYS,
+  costs = null,
+} = {}) {
   // One pass over the debt payments, not two per account.
   //
   // This was two lateral subqueries per non liquid account, each scanning
@@ -598,9 +610,28 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
          from paid
         where txn_date > current_date - 365
         group by account_id
+     ),
+     labels as (
+       -- What paid each account, so a payment can be matched to the commitment
+       -- that projects it. Grouped in JavaScript through matchKeyFor, never
+       -- joined to commitments.match_key in SQL: the two keys are different
+       -- normalisations and would match almost nothing.
+       select account_id, array_agg(distinct label) as labels from (
+         select a.id as account_id,
+                coalesce(t.display_description, t.description) as label
+           from budget_flows t
+           left join merchants m on m.match_key = t.merchant_key
+           left join transactions p on p.id = t.transfer_pair_id
+           join accounts a
+             on (m.pays_account_id = a.id
+                 or t.internal_to_account_id = a.id
+                 or p.account_id = a.id)
+          where t.counts and t.to_own_debt and not a.is_liquid
+       ) x group by account_id
      )
      select a.id, a.name, a.role, a.bank,
             b.balance,
+            coalesce(l.labels, '{}') as labels,
             round(coalesce(d.per_month, 0), 2) as per_month,
             coalesce(d.payments, 0) as payments,
             d.first_payment,
@@ -612,14 +643,40 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
        ) b on true
        left join windowed d on d.account_id = a.id
        left join yearly y on y.account_id = a.id
+       left join labels l on l.account_id = a.id
       where not a.is_liquid
       order by b.balance nulls last`,
     [window],
   );
 
+  // What the plan charges each account, as opposed to what the flows measured.
+  //
+  // These are two measurements of one thing, and the front page was showing
+  // both: "Debt 3,652.80" in the out bar, over a card whose rows summed to
+  // 3,361.08. The Bendigo card is the gap. Its payments vary, so the flows put
+  // it at 875.15 a month and the commitment that the runway is actually built
+  // from puts it at 1,166.87. The card sat under the headline looking like its
+  // breakdown and was 291.72 short, and its "gone 20 November" was worked out
+  // from the rate nothing else in the app uses.
+  //
+  // There is one household plan, so the card reports the plan. The observed
+  // figure stays as per_year, which is a different claim and says so.
+  const plannedByAccount = new Map();
+  if (costs) {
+    const debtCommitments = costs.commitments.filter((c) => c.is_debt);
+    for (const row of rows) {
+      const keys = new Set((row.labels ?? []).map((label) => matchKeyFor(label)).filter(Boolean));
+      const cents = debtCommitments
+        .filter((c) => keys.has(c.match_key))
+        .reduce((total, c) => total + c.per_month_cents, 0);
+      if (cents > 0) plannedByAccount.set(row.id, cents);
+    }
+  }
+
   const now = Date.parse(`${householdToday()}T00:00:00Z`);
   return rows.map((row) => {
     const owedCents = Math.abs(toCents(row.balance ?? 0));
+    const plannedCents = plannedByAccount.get(row.id) ?? null;
 
     // Three payments in a year is the least that can establish a monthly rate.
     //
@@ -629,8 +686,10 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
     // against a real cost of 25. Twelve times over, on a page whose whole claim
     // is that the numbers are true. Now it reports the year, because that is
     // what one payment a year actually tells us.
-    const regular = row.payments >= 3;
-    const perMonthCents = regular ? toCents(row.per_month ?? 0) : 0;
+    // A commitment is already the app's judgement that this recurs, so an
+    // account the plan covers is regular whatever the window happened to catch.
+    const regular = plannedCents !== null || row.payments >= 3;
+    const perMonthCents = plannedCents ?? (regular ? toCents(row.per_month ?? 0) : 0);
     const perYearCents = toCents(row.per_year ?? 0);
     const months = perMonthCents > 0 && owedCents > 0 ? owedCents / perMonthCents : null;
     // Anything past about a decade is a fixture, not a countdown, and putting a
@@ -647,6 +706,10 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
       per_month: fromCents(perMonthCents),
       per_year: fromCents(perYearCents),
       payments_seen: row.payments,
+      // Whether this rate is the household plan's or this query's own reading
+      // of the payments. Only a debt the plan does not carry uses the second.
+      rate_from: plannedCents !== null ? 'plan' : 'payments',
+      observed_per_month: fromCents(toCents(row.per_month ?? 0)),
       // False when there were too few payments to call it a rate. The UI says
       // what was actually observed instead of implying a monthly commitment.
       regular,
@@ -694,7 +757,14 @@ export async function thisPeriod({ client = { query }, projection = null } = {})
   const { rows: [totals] } = await client.query(
     `select
        coalesce(sum(t.amount) filter (where c.kind = 'income'), 0) as income,
-       coalesce(sum(-t.amount) filter (where c.kind = 'expense' or c.kind is null), 0) as out
+       -- Money out is money out. Without the sign test an uncategorised deposit
+       -- fell through "c.kind is null" and had its negation added to the out
+       -- total, so a pay that arrived before anyone filed it would not show as
+       -- income AND would subtract from spending. Every deposit on this
+       -- household happens to be categorised, which is exactly why this would
+       -- have gone unnoticed until the one time it was not.
+       coalesce(sum(-t.amount) filter (
+         where (c.kind = 'expense' or c.kind is null) and t.amount < 0), 0) as out
      from budget_flows t
      left join categories c on c.id = t.category_id
      where t.counts

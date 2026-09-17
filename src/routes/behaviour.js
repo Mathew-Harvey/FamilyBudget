@@ -84,10 +84,12 @@ behaviourRouter.get('/', async (req, res, next) => {
       since ? didItStick({ since }) : null,
       since ? movers({ since }) : null,
       intentions(),
-      // The same window as the headline. Left to its own default, the debts
-      // card was built on 120 days while the figure above it used whatever was
-      // asked for, so at ?window=60 the rows did not add up to the total.
-      debts({ window }),
+      // The same window as the headline, and the same cost model. Left to its
+      // own default the card was built on 120 days while the figure above it
+      // used whatever was asked for; without the model it measured the same
+      // payments a second way and came out 291.72 short of the "Debt" figure
+      // directly above it on the front page.
+      debts({ window, costs: forecastContext.costs }),
       whatToStop({ window, limit: 40, forecastContext, positionResult: here }),
       thisPeriod({ projection }),
     ]);
@@ -95,6 +97,11 @@ behaviourRouter.get('/', async (req, res, next) => {
     res.json({
       position: here,
       period,
+      // Income that has not started yet, so the front page can say whether any
+      // has been entered without asking the analyst routes for it.
+      expecting: (projection.expected_income_streams ?? []).map((row) => ({
+        label: row.label, amount: row.amount, starts_on: row.starts_on,
+      })),
       curve: cashCurve(projection),
       change_point: point,
       stuck,
