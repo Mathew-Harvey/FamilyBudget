@@ -657,15 +657,27 @@ ran this morning.
 **There is one cash chart, `public/chart.js`.** Home and Forecast each drew the
 same projection their own way, which is two pictures of one thing free to
 disagree, and the copy on the Forecast page was still painting its axis labels
-`var(--ink-soft)`, a token that stopped existing in the restyle. The band is
-measured from today's balance rather than filled down to the axis: building up
-and running down are then an area and a colour instead of a sign on a number,
-and a fortnight that dips before payday and recovers after is visible there and
-nowhere else. Today's level and zero are two annotated levels on one dollar
-scale, which is not two axes. Zero is drawn only when the money comes near it,
-and past a crossing the endpoint figure is dropped, because no account holds
-minus two hundred dollars and printing it beside the date the money ran out is a
-second, wronger answer to the same question.
+`var(--ink-soft)`, a token that stopped existing in the restyle. Today's level
+and zero are two annotated levels on one dollar scale, which is not two axes.
+Zero is drawn only when the money comes near it, and past a crossing the
+endpoint figure is dropped, because no account holds minus two hundred dollars
+and printing it beside the date the money ran out is a second, wronger answer to
+the same question.
+
+**Red on the cash chart means below zero, and nothing else.** The band used to
+be measured from today's balance, so an ordinary fortnight that dips before
+payday and recovers after was painted red while the household had twenty
+thousand dollars in the bank. A line going down already says money is going out;
+spending a status colour on "lower than it is right now" leaves nothing to say
+"you have run out" with. The band closes along zero now and is clipped at the
+same level, green above and red below. Closing it at the foot of the plot looks
+equivalent and is not: the enclosed region then runs past zero everywhere, which
+put a red strip across the full width of a chart that never approaches it. The
+scale is still fitted to the curve rather than forced down to zero, because
+twenty two thousand dollars moving by two is a flat line on a scale that starts
+at nothing. The same rule governs the labels: the endpoint figure is never red
+for merely ending lower than today, and the tooltip's "on today" line carries a
+sign but no colour.
 
 **A tier ramp needs ink per step, not per theme.** `--tier-cut` is pale by design
 and carried white text at 2.1 to 1, which is unreadable, on every optional

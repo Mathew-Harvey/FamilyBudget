@@ -5,17 +5,21 @@
 //
 // What it answers, in order of what a household actually asks:
 //
-//   1. Am I building up or running down? The band between the curve and where
-//      the money stands today is filled in the direction it is moving, so that
-//      is a colour and an area rather than a sentence. A fortnight that dips
-//      before payday and recovers after shows as red then green, which is the
-//      real texture of it and is invisible in any monthly figure.
-//   2. When does it get serious? If the curve reaches zero, that crossing is
-//      the runway date the page leads with, marked where it happens.
+//   1. Am I building up or running down? The slope of the line says that, and
+//      it needs no help: a line going down already conveys money going out.
+//   2. When does it get serious? Red means one thing only, that the money is
+//      predicted to go below zero, and the crossing is marked where it happens.
+//      The band used to be measured from today's balance instead, so an
+//      ordinary fortnight that dips before payday and recovers after was
+//      painted red while the balance sat at twenty thousand dollars. Red is a
+//      status colour and spending it on "lower than it is right now" leaves
+//      nothing to say "you have run out" with.
 //   3. What will I have? The end of the line carries its own figure.
 //
 // Drawn as one scale with two annotated levels, today's balance and zero. Two
-// levels is not two axes: every mark is dollars, measured the same way.
+// levels is not two axes: every mark is dollars, measured the same way. Today's
+// level stays as a hairline to measure against, it is simply no longer what
+// decides the colour.
 import { el, formatAmount } from '/app.js';
 
 const W = 1000;
@@ -42,11 +46,13 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
   const lowest = Math.min(...values);
   const highest = Math.max(...values);
 
-  // Fitted to the curve, not forced down to zero: the band is measured from
-  // today's level and says so, so it is not an area to an axis that would be
-  // claiming something about the distance to nothing. Zero is pulled in only
-  // when the money gets near enough to it to matter, because then how close it
-  // comes is the whole story and a chart that cropped it would be hiding it.
+  // Fitted to the curve, not forced down to zero. Twenty two thousand dollars
+  // moving by two is a flat line on a scale that starts at nothing, and how it
+  // moves is what the chart is for. Zero is pulled in as soon as the money gets
+  // near enough to it to matter, because then how close it comes is the whole
+  // story and a chart that cropped it would be hiding it. The fill reaching the
+  // foot of the plot is a tint, not an area anyone is asked to read off: the
+  // figures are on the line and in the tooltip.
   const nearZero = lowest < 0 || lowest < highest * 0.25;
   const floor = nearZero ? Math.min(lowest, 0) : lowest;
   // Air at both ends. Padding only the top left the lowest point sitting on the
@@ -64,11 +70,21 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
   const line = values
     .map((value, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
     .join(' ');
-  // Closed back along today's level, so the enclosed area is exactly the
-  // distance from where the money stands now. Clipped above and below that
-  // level and filled twice, which makes every crossing land in the right
-  // colour without anyone having to find the crossings.
-  const band = `${line} L${W},${refY.toFixed(1)} L0,${refY.toFixed(1)} Z`;
+  // Closed along zero, so the filled area is the money there is rather than the
+  // distance from where it stands today. Filled twice and clipped at the same
+  // level, which puts every crossing in the right colour without anyone having
+  // to find the crossings.
+  //
+  // Closing at the foot of the plot instead looks equivalent and is not: the
+  // enclosed region then runs past zero everywhere, so a household with money
+  // in the bank got a red strip across the full width of its chart.
+  const zeroY = y(0);
+  const band = `${line} L${W},${zeroY.toFixed(1)} L0,${zeroY.toFixed(1)} Z`;
+
+  // The same level, clamped into the plot for the clips. Off the bottom means
+  // the money never comes near zero and there is no red; off the top means the
+  // whole projection is under water and there is no green.
+  const split = Math.min(Math.max(zeroY, 0), H);
 
   const id = `c${++seq}`;
   const zeroShown = nearZero && min <= 0 && max >= 0;
@@ -79,8 +95,8 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
   const svg = `
     <svg class="plot" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       <defs>
-        <clipPath id="${id}up"><rect x="0" y="0" width="${W}" height="${Math.max(refY, 0).toFixed(1)}"/></clipPath>
-        <clipPath id="${id}dn"><rect x="0" y="${Math.max(refY, 0).toFixed(1)}" width="${W}" height="${Math.max(H - refY, 0).toFixed(1)}"/></clipPath>
+        <clipPath id="${id}up"><rect x="0" y="0" width="${W}" height="${split.toFixed(1)}"/></clipPath>
+        <clipPath id="${id}dn"><rect x="0" y="${split.toFixed(1)}" width="${W}" height="${(H - split).toFixed(1)}"/></clipPath>
       </defs>
       <path d="${band}" fill="var(--in)" opacity="0.14" clip-path="url(#${id}up)"/>
       <path d="${band}" fill="var(--out)" opacity="0.14" clip-path="url(#${id}dn)"/>
@@ -108,9 +124,8 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
     class: `ref ${climbs ? 'below' : 'above'}`, style: `top:${up(start)}`, text: 'today',
   }));
 
-  // The band is a tint either side of today's level and the zero line is a
-  // threshold, and both are reddish when things are going badly. One word
-  // settles which is which, and it only appears when zero is on the chart.
+  // The one word that names the threshold the colour is about. Only drawn when
+  // zero is on the chart, which is the only time any of it is red.
   if (zeroShown) {
     wrap.append(el('span', { class: 'zero', style: `top:${up(0)}`, text: 'nothing left' }));
   }
@@ -130,7 +145,9 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
   // question. The crossing is the whole story by then.
   if (runwayIndex < 0) {
     wrap.append(el('span', {
-      class: `end ${last >= start ? 'up' : 'down'}`,
+      // Never red for merely ending lower than today. There is no crossing on
+      // this branch, so the figure is money the household still has.
+      class: 'end',
       style: `top:${up(last)}`,
     }, [
       el('b', { text: formatAmount((last / 100).toFixed(2)) }),
@@ -163,10 +180,11 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
     tip.classList.toggle('under', level < 42);
     tip.innerHTML = '';
     tip.append(
-      el('b', { text: formatAmount((value / 100).toFixed(2)) }),
+      el('b', { class: value < 0 ? 'under-zero' : '', text: formatAmount((value / 100).toFixed(2)) }),
       el('span', { text: shortDate(points[i].date) }),
+      // The sign carries the direction. Colouring it would be the old rule
+      // again in miniature: "lower than today" is not a warning.
       el('span', {
-        class: change >= 0 ? 'good' : 'warn',
         text: `${change >= 0 ? '+' : '−'}${formatAmount((Math.abs(change) / 100).toFixed(2))} on today`,
       }),
     );

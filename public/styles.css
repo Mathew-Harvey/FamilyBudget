@@ -430,7 +430,6 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 .cash .ref.below { transform: translateY(50%); }
 .cash .zero { left: -5px; color: var(--out); font-weight: 620; transform: translateY(-150%); }
 .cash .end { right: -5px; transform: translateY(-140%); text-align: right; }
-.cash .end.down b { color: var(--out); }
 
 .cash .mark { position: absolute; transform: translate(-50%, -50%); }
 .cash .mark i {
@@ -468,8 +467,10 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 .cash .tip.under { transform: translate(10px, 12%); }
 .cash .tip.flip.under { transform: translate(calc(-100% - 10px), 12%); }
 .cash .tip span { color: var(--muted); font-size: 0.7rem; }
-.cash .tip span.good { color: var(--in); }
-.cash .tip span.warn { color: var(--out); }
+/* Red on this chart means one thing, the balance is below zero. It is never
+   spent on "lower than it is today", which is what a line going down already
+   says on its own. */
+.cash .tip b.under-zero { color: var(--out); }
 
 /* Room for the labels that sit above the line at either end. */
 .cash { padding-top: 6px; }
