@@ -10,15 +10,23 @@
 <body>
 <main>
   <div id="notice"></div>
-  <div class="card row">
-    <button class="primary" id="recategorise">Recategorise everything</button>
-    <span class="muted" id="state"></span>
-  </div>
-  <div id="tree"><p class="muted">Loading...</p></div>
+  <div id="head"></div>
+  <div id="tree"></div>
 
-  <h2>What the banks call things</h2>
-  <p class="muted">Every transaction starts here, unless a rule or a manual choice says otherwise.</p>
-  <div class="card"><div id="provider"></div></div>
+  <div class="sec">What the banks call things</div>
+  <p class="muted small" style="margin:-4px 0 10px">Every transaction starts with the bank's own label, unless a rule or a choice you made says otherwise. A transfer label is never taken on trust: the bank cannot know an account is ours.</p>
+  <details class="card" id="providerBox">
+    <summary id="providerSummary">Bank labels</summary>
+    <div style="margin-top:12px"><div id="provider"></div></div>
+  </details>
+
+  <details class="card">
+    <summary>File everything again</summary>
+    <div class="stack" style="margin-top:14px">
+      <p class="muted small" style="margin:0">Runs every rule and every bank label over all your transactions again. Worth doing after changing a rule or remapping a bank label. Anything you categorised by hand is left exactly as it is.</p>
+      <div class="row"><button class="primary" id="recategorise">Run it</button><span class="muted small" id="state"></span></div>
+    </div>
+  </details>
 </main>
 <script type="module" src="/categories.js"></script>
 </body>

@@ -477,6 +477,25 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**A category's name had the least room on the page.** Every one of the twenty
+five was an always editable text box squeezed to half a word by the kind
+dropdown beside it, which holds one of four values and took twice the width:
+"Groceries an", "Home improv", "Personal car". A name is text that becomes a
+field when clicked, and the space goes to how much each category is actually
+carrying, because whether the taxonomy fits the spending is the only question
+that page can answer and nothing else can. Most categories reading "unused"
+almost always means the filing has not been done rather than that the categories
+are wrong, so the head says which and links to it.
+
+**A rules page leads with the rules, not with an empty form.** Ten fields filled
+the first screen while "No rules yet" sat below the fold. The list leads,
+numbered, because first match wins and the order is the one thing about a rule
+that is not obvious from reading it. The form folds away with the common case,
+description contains X and file it under Y, visible and the other seven
+conditions behind "narrow it further". A rule that is switched on and catching
+nothing is named: waiting for a merchant and quietly not matching look identical
+otherwise.
+
 **483 uncategorised rows are fifteen decisions.** 65 of them are ALDI, 62 are
 Woolworths, 57 are Coles. The Transactions page grouped nothing and offered a
 category dropdown on each of a hundred rows, so the one job people come to that
