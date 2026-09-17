@@ -55,6 +55,45 @@ export async function effectiveWindowDays(window, client = { query }) {
   return coveredDays(row?.earliest, window);
 }
 
+// How hard a cost would be to stop, in SQL.
+//
+// The merchant beats the category, because a category is too blunt to decide
+// with: this household's "Services" holds health cover and drone parts. Nothing
+// paying down our own debt is ever optional, whatever its category says. One
+// definition, because a page that grouped by its own copy of this would put a
+// merchant in a different tier from the one the plan uses.
+export const TIER_SQL = `
+  case when t.to_own_debt then 'keep'
+       else coalesce(m.lean_tier, cat.lean_tier, 'cut') end`;
+
+// What each tier cost over the window, on the same filter the Spending page
+// totals use, so the three add up to the figure above them.
+export async function tierTotals({ window, client = { query } } = {}) {
+  if (!Number.isInteger(window) || window < 1) {
+    throw new TypeError('window must be a positive integer');
+  }
+  const { rows } = await client.query(
+    `select ${TIER_SQL} as tier,
+            coalesce(sum(-t.amount), 0) as spent,
+            count(*)::int as transactions
+       from budget_flows t
+       left join merchants m on m.match_key = t.merchant_key
+       left join categories cat on cat.id = t.category_id
+      where t.counts and t.amount < 0
+        and (cat.kind is null or cat.kind = 'expense')
+        and t.txn_date > current_date - $1::integer
+        and t.txn_date <= current_date
+      group by 1`,
+    [window],
+  );
+  const by = new Map(rows.map((row) => [row.tier, row]));
+  return ['keep', 'trim', 'cut'].map((tier) => ({
+    tier,
+    spent: by.get(tier)?.spent ?? '0',
+    transactions: by.get(tier)?.transactions ?? 0,
+  }));
+}
+
 export async function buildCostModel({ window, client = { query } } = {}) {
   if (!Number.isInteger(window) || window < 1) {
     throw new TypeError('cost model window must be a positive integer');
@@ -131,7 +170,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     `select t.amount, t.txn_date, t.merchant_key, t.to_own_debt,
             coalesce(t.display_description, t.description) as label,
             coalesce(m.display_name, t.merchant_key, 'Not described by the bank') as name,
-            coalesce(m.lean_tier, cat.lean_tier, 'cut') as tier,
+            coalesce(m.lean_tier, cat.lean_tier, 'cut') as tier,  -- see TIER_SQL
             coalesce(cat.name, 'Uncategorised') as category
        from budget_flows t
        left join merchants m on m.match_key = t.merchant_key

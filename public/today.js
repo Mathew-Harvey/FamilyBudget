@@ -104,28 +104,43 @@ function headline(position) {
 
   box.append(state, figure, under);
 
-  // What goes out, split into the two things it is. Both leave the account, but
-  // one is consumed and one buys down what is owed, and only one of them is a
-  // monthly choice.
+  // In against out, on one scale, so the gap is a length rather than a
+  // sentence. This replaced "X comes in, the plan includes Y of recurring
+  // essentials, Z discretionary and active commitments", which is four figures
+  // in a line of prose and reads as wallpaper. The out bar is split into the
+  // two things it is: both leave the account, but one is consumed and one buys
+  // down what is owed, and only one of them is a monthly choice.
+  const inCents = Math.round(Number(position.in_per_month) * 100);
   const livingCents = Math.round(Number(position.living_per_month) * 100);
   const debtCents = Math.round(Number(position.debt_per_month) * 100);
-  if (livingCents > 0 || debtCents > 0) {
+  const widest = Math.max(inCents, livingCents + debtCents, 1);
+  const width = (cents) => `${((cents / widest) * 100).toFixed(1)}%`;
+
+  if (inCents > 0 || livingCents > 0 || debtCents > 0) {
     box.append(
-      el('div', { class: 'sec', style: 'margin:20px 0 6px', text: 'Where it goes each month' }),
-      el('div', { class: 'split' }, [
-        el('i', { style: `flex:${Math.max(livingCents, 1)};background:var(--accent)` }),
-        debtCents > 0 ? el('i', { style: `flex:${debtCents};background:var(--accent-2)` }) : null,
+      el('div', { class: 'compare', style: 'margin-top:20px' }, [
+        el('span', { class: 's', text: 'In' }),
+        // Neutral, not the status green. Green is reserved for state and a bar
+        // is a series, so income is the quiet reference and the coloured bar
+        // below is the subject. The comparison is length, which needs no hue.
+        el('div', { class: 'split', style: `width:${width(inCents)}` }, [
+          el('i', { style: 'flex:1;background:var(--axis)' }),
+        ]),
+        el('span', { class: 'amount', text: money(position.in_per_month) }),
+
+        el('span', { class: 's', text: 'Out' }),
+        el('div', { class: 'split', style: `width:${width(livingCents + debtCents)}` }, [
+          el('i', { style: `flex:${Math.max(livingCents, 1)};background:var(--accent)` }),
+          debtCents > 0 ? el('i', { style: `flex:${debtCents};background:var(--accent-2)` }) : null,
+        ]),
+        el('span', { class: 'amount', text: money(position.out_per_month) }),
       ]),
       el('div', { class: 'keys' }, [
         el('span', {}, [el('i', { style: 'background:var(--accent)' }),
           el('span', { text: 'Living ' }), el('b', { text: money(position.living_per_month) })]),
         debtCents > 0 ? el('span', {}, [el('i', { style: 'background:var(--accent-2)' }),
-          el('span', { text: 'Paying off debt ' }), el('b', { text: money(position.debt_per_month) })]) : null,
+          el('span', { text: 'Debt ' }), el('b', { text: money(position.debt_per_month) })]) : null,
       ]),
-      el('p', { class: 'muted small', style: 'margin:12px 0 0', text:
-        `${money(position.in_per_month)} comes in. `
-        + `The plan includes ${money(position.recurring_essential_per_month)} a month of recurring `
-        + `essentials, ${money(position.discretionary_per_month)} discretionary, and active commitments.` }),
     );
   }
 
@@ -140,9 +155,8 @@ function headline(position) {
     box.after(el('div', { class: 'nudge' }, [
       el('h3', { text: 'One thing needs deciding' }),
       el('p', { text:
-        `The plan assumes you spend ${money(position.discretionary_per_month)} a month on the `
-        + `optional things. Recently that has been about ${money(position.optional_history_per_month)} `
-        + 'a month, so the forecast is kinder than real life until you pick a number.' }),
+        `The plan counts ${money(position.discretionary_per_month)} a month of optional spending. `
+        + `Lately it has been ${money(position.optional_history_per_month)}.` }),
       el('a', { class: 'btn', href: '/forecast', text: 'Pick a number', style: 'margin-top:11px' }),
     ]));
   }
@@ -169,7 +183,7 @@ function stuck(data, changePoint) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'Did it stick?' }),
-    el('div', { class: 'muted', text: `Comparing the ${data.days_since} days since ${changePoint.date} against the ${data.compared_against_days} days before it. Based on ${changePoint.source}.` }),
+    el('div', { class: 'muted', text: `${data.days_since} days since ${changePoint.date}, against the ${data.compared_against_days} before it.` }),
   ]);
 
   // Credit first, and it is not a kindness, it is the larger number.
@@ -220,7 +234,7 @@ function moversSection(data) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'What grew' }),
-    el('div', { class: 'muted', text: 'The places that took more than they used to. This is where the cuts went.' }),
+    el('div', { class: 'muted', text: 'Where the cuts went.' }),
     el('table', { class: 'table-responsive' }, [
       el('tbody', {}, data.up.slice(0, 8).map((row) =>
         el('tr', {}, [
@@ -283,7 +297,7 @@ function debtsSection(list) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'What you owe' }),
-    el('div', { class: 'muted', text: 'Paying these down is not spending, it is moving money from one column to the other. It still leaves the account, so it still shortens the runway.' }),
+    el('div', { class: 'muted', text: 'Not spending. It still leaves the account.' }),
     el('div', {}, rows),
   ]);
 
@@ -295,7 +309,7 @@ function debtsSection(list) {
       `${soon.map((row) => `${row.name.split(',')[0]} clears ${row.cleared_on_friendly}`).join(', ')}. `
       + `That is ${formatAmount(freed.toFixed(2))} a month back.` }));
     card.append(el('p', { class: 'muted', style: 'margin:0', text:
-      'Dates assume the current payment and ignore interest, so they are right for interest free finance and optimistic for a card.' }));
+      'Assumes the current payment, ignores interest.' }));
   }
 
   // A card carried at zero is a line of credit, not a debt.
@@ -396,7 +410,7 @@ async function whatToStop(data) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'What each one is really costing' }),
-    el('div', { class: 'muted', text: 'Priced by the year, because that is the number a monthly price is designed to hide. Tick things to see what stopping them does to the date. Ticking changes nothing.' }),
+    el('div', { class: 'muted', text: 'Priced by the year. Tick to see what stopping it would do.' }),
     el('div', {}, choice.map(line)),
     result,
   ]);
@@ -479,7 +493,7 @@ function decisions(list, watchable) {
     el('h3', { style: 'margin:0', text: 'Decisions' }),
     // The "when" is not decoration. A decision paired with the situation that
     // triggers it is acted on far more often than the same decision on its own.
-    el('div', { class: 'muted', text: 'A decision with a "when" attached gets done. "Spend less on takeaway" does not. "No delivery on weeknights, we cook what is in the fridge" does.' }),
+    el('div', { class: 'muted', text: 'A decision with a "when" attached gets done. One without does not.' }),
     // Wraps rather than squeezing. Five controls on one phone width turned
     // every placeholder into a truncated fragment.
     el('div', { class: 'row', style: 'flex-wrap:wrap' }, [what, when]),

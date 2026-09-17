@@ -17,6 +17,7 @@
   --ink-2:     #52514e;
   --muted:     #898781;
   --line:      #e1e0d9;
+  --axis:      #c3c2b7;
   --ring:      rgba(11, 11, 11, 0.09);
   --shadow:    0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.05);
 
@@ -47,6 +48,7 @@
   --ink-2:     #c3c2b7;
   --muted:     #898781;
   --line:      #2c2c2a;
+  --axis:      #4a4a46;
   --ring:      rgba(255, 255, 255, 0.09);
   --shadow:    none;
 
@@ -257,3 +259,27 @@ a { color: var(--accent); }
 .pending { font-style: italic; color: var(--muted); }
 
 details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font-size: 0.9rem; }
+
+/* --- segmented control --------------------------------------------------- */
+/* Three or four choices in a row. No dropdown, no label: the options are the
+   label, and a select on a phone hides everything but the current value. */
+.seg { display: flex; gap: 2px; background: var(--page); border-radius: 999px;
+       padding: 3px; margin-bottom: 8px; border: 1px solid var(--ring); }
+.seg button {
+  flex: 1; border: 0; background: none; box-shadow: none;
+  font-size: 0.82rem; font-weight: 600; color: var(--muted);
+  padding: 7px 4px; border-radius: 999px;
+}
+.seg button[aria-current] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+
+/* The proportion bar under a row. Length is the share of the biggest row,
+   colour is the tier, so one mark carries both. */
+.track { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 6px; }
+.track i { display: block; height: 100%; border-radius: 999px; }
+
+/* In against out on one scale, so the gap is a length rather than a sentence.
+   Three columns: label, bar, figure. The bars share a width basis, so the
+   shorter one being shorter is the whole message. */
+.compare { display: grid; grid-template-columns: auto 1fr auto; gap: 9px 10px; align-items: center; }
+.compare .split { height: 14px; }
+.compare .s { margin: 0; }

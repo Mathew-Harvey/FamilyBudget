@@ -223,6 +223,33 @@ visible. No per category rainbow: past about eight hues they stop being
 distinguishable, and a colour that means nothing is a colour that teaches the
 reader to ignore colour.
 
+**A diagram instead of a paragraph, wherever one will do.** The page had grown
+a paragraph under most headings explaining why the thing above it was built that
+way. That is the author talking to the next author, and to the person who just
+wants to know where the money went it is wallpaper: it sits in the position
+where information should be, so it teaches the reader to skip that position.
+
+Two replaced outright. "X comes in, the plan includes Y of recurring essentials,
+Z discretionary and active commitments" is four figures in a sentence; it is now
+two bars on one scale, in against out, where the gap is a length. And the
+Spending page opens with the window split three ways by how hard each thing
+would be to stop, with a key under it in the same three colours in the same
+order, so the one picture answers "how much of this can we even change" and
+teaches what the tile beside every row below means. It replaced the two
+sentences that used to say the same thing in words.
+
+What stayed is the caveat that changes what a number means: "assumes the current
+payment, ignores interest" earns its line because without it the payoff dates
+read as promises. The rule is that an explanation of the DESIGN goes, and a
+qualification of the FIGURE stays.
+
+**A bar length means one thing at a time.** The Spending list shows a monthly
+rate for places paid on three or more days and a window total for the rest,
+because a place paid twice a year has no monthly rate. Those are two different
+measures, so they get two lists and two scales. Plotted against one maximum, an
+11,000 dollar engine rebuild took the full width and squashed every monthly rate
+to a stub.
+
 **Light is the default and dark is a choice.** Not an automatic flip from the
 operating system, which is usually a preference about a phone at night rather
 than about a budget looked at in daylight.

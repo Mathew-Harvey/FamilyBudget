@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
-import { effectiveWindowDays } from '../costs.js';
+import { effectiveWindowDays, tierTotals } from '../costs.js';
 import { matchKeyFor } from '../commitments.js';
 
 export const spendingRouter = Router();
@@ -84,6 +84,9 @@ spendingRouter.get('/', async (req, res, next) => {
       window_days: days,
       days_of_history: over,
       total: { spent: total.spent, per_month: total.per_month, transactions: total.transactions },
+      // How much of this is even changeable. Summed in SQL on the same filter
+      // as the total above, so the three add up to it.
+      by_tier: await tierTotals({ window: days }),
       groups,
     });
   } catch (err) {
