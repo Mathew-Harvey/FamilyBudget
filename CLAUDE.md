@@ -477,6 +477,24 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**483 uncategorised rows are fifteen decisions.** 65 of them are ALDI, 62 are
+Woolworths, 57 are Coles. The Transactions page grouped nothing and offered a
+category dropdown on each of a hundred rows, so the one job people come to that
+page for was the same judgement repeated hundreds of times. It groups the
+unfiled by merchant now, and filing a group writes a rule through
+`/api/rules`, which files the history and everything that arrives from there
+later, and stays visible and editable on the Rules page rather than being an
+invisible bulk edit. `/api/transactions/unfiled` reads `budget_flows`, so a
+transfer between our own accounts is not sitting in the list forever waiting for
+a category it should never have.
+
+**A page that reads filters off the query string has to read all of them.** The
+incoming map carried `account_id`, `status`, `transfer` and `category_id` and
+silently dropped `from`, `to` and `search`, so the allowance page's "find it"
+link, which passes a month as `from` and `to`, landed on the unfiltered table
+and looked like it had done nothing. Outgoing and incoming are two lists and
+they had drifted.
+
 **The pay cycle is load bearing and envelopes are optional, so the page says
 so.** Two features shared one page as two equal forms. The cycle cuts history
 into pay periods, it is what the fortnight card on Home is measured against, and
