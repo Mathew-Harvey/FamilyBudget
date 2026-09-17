@@ -3,11 +3,94 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments, matchKeyFor } from '../commitments.js';
-import { optionalByMonth } from '../costs.js';
+import { optionalByMonth, buildCostModel } from '../costs.js';
 import { position } from '../behaviour.js';
+import { periodsBetween } from '../buckets.js';
+import { addDays } from '../dates.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
+// How far the household question is answered over, regardless of how far the
+// page has been asked to draw. Today and the plan both use this length, and the
+// answer has to be the same on all three.
+const HOUSEHOLD_DAYS = 400;
+
 export const forecastRouter = Router();
+
+// What is coming up, cut into the periods the household actually lives in.
+//
+// Thirty two rows down a page, with the fuel stop six times and the pay five,
+// is a calendar nobody reads. The pay lands every fortnight and has to cover
+// what happens before the next lot, which is the same unit the Today page
+// measures, so the bills are grouped between paydays.
+//
+// What goes out is taken from the balance either side rather than by adding the
+// events up: everyday spending is applied as a daily rate and is not an event
+// at all, so a sum of events would be short by most of the groceries. Doing it
+// this way also means the rows cannot fail to add up to the curve above them,
+// which is the arithmetic the plan card got wrong.
+function payPeriods(projection) {
+  const series = projection.series ?? [];
+  if (series.length < 2) return [];
+
+  const balances = new Map(series.map((point) => [point.date, point.balance_cents]));
+  const first = series[0].date;
+  const last = series.at(-1).date;
+  const paydays = projection.paydays ?? [];
+  const starts = [first, ...paydays.filter((date) => date > first && date <= last)];
+
+  // One payday past the end of the window, so the last group can say whether it
+  // is a whole period or one the look ahead cut in half. Without it a fortnight
+  // that happens to end on the last day drawn is labelled partial, which reads
+  // as a warning about nothing.
+  const beyond = projection.cycle
+    ? periodsBetween(projection.cycle.cadence, projection.cycle.anchor_date, last, addDays(last, 40))
+      .map((period) => period.starts_on)
+      .find((date) => date > last)
+    : null;
+
+  return starts.map((start, index) => {
+    const next = starts[index + 1];
+    const end = next
+      ? series[series.findIndex((point) => point.date === next) - 1]?.date ?? start
+      : last;
+    const opening = index === 0
+      ? numericToCents(projection.opening_balance)
+      : balances.get(series[series.findIndex((point) => point.date === start) - 1]?.date) ?? 0;
+    const closing = balances.get(end) ?? opening;
+
+    const events = series
+      .filter((point) => point.date >= start && point.date <= end)
+      .flatMap((point) => point.events.map((event) => ({ ...event, date: point.date })));
+    const incomeCents = events
+      .filter((event) => event.amount_cents > 0)
+      .reduce((total, event) => total + event.amount_cents, 0);
+    const billsCents = events
+      .filter((event) => event.amount_cents < 0)
+      .reduce((total, event) => total - event.amount_cents, 0);
+    const outCents = incomeCents - (closing - opening);
+
+    return {
+      starts: start,
+      ends: end,
+      // Today is usually part way through a period, and the look ahead usually
+      // stops part way through the last one. Neither stub should be compared
+      // against a whole fortnight, so each says which it is rather than being
+      // assumed.
+      partial: (index === 0 && !paydays.includes(first))
+        || (!next && beyond !== addDays(last, 1)),
+      opening: centsToNumeric(opening),
+      closing: centsToNumeric(closing),
+      income: centsToNumeric(incomeCents),
+      out: centsToNumeric(outCents),
+      bills: centsToNumeric(billsCents),
+      // The remainder, so the two parts of "out" always add back to it.
+      everyday: centsToNumeric(outCents - billsCents),
+      left_over: centsToNumeric(closing - opening),
+      events,
+    };
+  });
+}
+
 
 forecastRouter.get('/', async (req, res, next) => {
   try {
@@ -38,14 +121,28 @@ forecastRouter.get('/', async (req, res, next) => {
     // cannot be hidden by editing a query string.
     const excluded = requestedExclusions.filter((id) => optionalIds.has(id));
 
-    const projection = await forecast({
-      days,
+    const scenario = {
       buffer,
       window,
       forecastContext,
       discretionaryCentsPerMonth: discretionaryCents,
       excludeCommitmentIds: excluded,
-    });
+    };
+    const projection = await forecast({ days, ...scenario });
+
+    // The same scenario, run out to a fixed horizon.
+    //
+    // "Beyond 90 days" was the answer to "does the money last", and it was the
+    // look ahead control reading itself back. This household runs out on
+    // 2027-09-07: at 365 days the page said so, and at the default 90 it said
+    // "beyond 90 days" in the colour used for good news. A control may decide
+    // how much of the curve you are shown. It may not decide what is true.
+    //
+    // position() is the same reading Today and the plan lead with, so all three
+    // now answer this question identically whatever this page is set to.
+    const householdProjection = await forecast({ days: HOUSEHOLD_DAYS, ...scenario });
+    const household = await position({ window, forecastContext, projection: householdProjection });
+
     const historicalDiscretionaryCents =
       costs.historical_discretionary_per_month_cents;
     const optionalCommitmentCents = optionalCommitments
@@ -54,8 +151,30 @@ forecastRouter.get('/', async (req, res, next) => {
       .filter((row) => !excluded.includes(String(row.commitment_id)))
       .reduce((total, row) => total + row.per_month_cents, 0);
 
+    // position() builds what goes out from the cost model, which knows nothing
+    // about a scenario, so the excluded commitments are still inside its total.
+    // Taken off here in cents rather than left to disagree with the curve drawn
+    // directly underneath it.
+    const excludedCents = optionalCommitmentCents - includedCommitmentCents;
+    const outCents = numericToCents(household.out_per_month) - excludedCents;
+    const gapCents = numericToCents(household.gap_per_month) - excludedCents;
+
     res.json({
       ...projection,
+      household: {
+        horizon_days: HOUSEHOLD_DAYS,
+        in_per_month: household.in_per_month,
+        out_per_month: centsToNumeric(outCents),
+        gap_per_month: centsToNumeric(gapCents),
+        going_backwards: gapCents > 0,
+        runway_date: householdProjection.runway_date,
+        runway_date_friendly: householdProjection.runway_date
+          ? household.runway_date_friendly
+          : null,
+        runway_days: householdProjection.runway_days,
+        is_scenario: excluded.length > 0 || discretionaryCents !== undefined,
+      },
+      periods: payPeriods(projection),
       luxury: {
         allowance_per_month:
           projection.projected_everyday_rate.discretionary_allowance_per_month,
@@ -68,6 +187,18 @@ forecastRouter.get('/', async (req, res, next) => {
           per_month: row.per_month,
           included: !excluded.includes(String(row.commitment_id)),
         })),
+        // Commitments nothing has judged. They reach the 'cut' tier by default
+        // and the projection treats them as optional, but a default is not a
+        // finding, so they are named rather than offered as a saving. Fourth
+        // page this has come up on.
+        unjudged_commitments: costs.unjudged_commitments.map((row) => ({
+          id: row.commitment_id,
+          label: row.name,
+          per_month: row.per_month,
+        })),
+        unjudged_per_month: centsToNumeric(
+          costs.unjudged_commitments.reduce((total, row) => total + row.per_month_cents, 0),
+        ),
       },
     });
   } catch (err) {
@@ -210,6 +341,7 @@ forecastRouter.post('/policy', async (req, res, next) => {
 
 forecastRouter.get('/commitments', async (req, res, next) => {
   try {
+    const window = Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 180);
     const { rows } = await query(`
       select c.*, cat.name as category_name, grp.name as group_name
         from commitments c
@@ -217,7 +349,35 @@ forecastRouter.get('/commitments', async (req, res, next) => {
         left join categories grp on grp.id = cat.parent_id
        order by c.active desc, c.typical_amount, c.label
     `);
-    res.json({ commitments: rows });
+
+    // Whether each one is essential, and what decided that. The list used to
+    // show the category and nothing else, so a subscription nothing had ever
+    // looked at and a mortgage read the same, while the projection was quietly
+    // treating the first as optional. Resolved through the cost model, which
+    // reads the merchant judgement in JavaScript: matching a commitment key to
+    // a merchant key in SQL matches almost nothing.
+    const costs = await buildCostModel({ window });
+    const assessed = new Map(costs.commitments.map((row) => [String(row.commitment_id), row]));
+
+    res.json({
+      commitments: rows.map((row) => {
+        const judged = assessed.get(String(row.id));
+        return {
+          ...row,
+          // The name the household would recognise, which is the merchant's
+          // display name where one has been set. The statement text is still
+          // here as label: "OSKO PAYMENT ING HOME LOAN xxxx3310" truncates to
+          // "OSKO PAYMEN..." on a phone, which names the payment rail.
+          name: judged?.name ?? row.label,
+          // Inactive and zero cadence rows are not in the model at all, so they
+          // carry no tier rather than a made up one.
+          tier: judged?.tier ?? null,
+          tier_source: judged?.tier_source ?? null,
+          is_debt: judged?.is_debt ?? false,
+          per_month: judged?.per_month ?? null,
+        };
+      }),
+    });
   } catch (err) {
     next(err);
   }

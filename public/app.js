@@ -56,6 +56,23 @@ export function formatWhen(value) {
   return then.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// A calendar date in a heading, rather than in a dense column.
+//
+// YYYY-MM-DD is right in a table, where a column is scanned rather than read,
+// and wrong in a line of prose: "2026-09-24 to 2026-10-07" is two dates nobody
+// says out loud. The parts are used to build a local date instead of letting
+// Date parse the string, because new Date('2026-09-24') is UTC midnight and
+// renders as the 23rd in any browser west of Greenwich, which is the timezone
+// trap this app already fell into once on the server.
+export function formatDay(value, { year = false } = {}) {
+  if (!value) return '';
+  const [y, m, d] = String(value).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return String(value).slice(0, 10);
+  return new Date(y, m - 1, d).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}),
+  });
+}
+
 export function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {

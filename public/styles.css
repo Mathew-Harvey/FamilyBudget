@@ -564,3 +564,15 @@ input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
   background: repeating-linear-gradient(135deg, var(--line) 0 5px, var(--surface) 5px 10px);
   border: 1px solid var(--line); color: var(--ink-2);
 }
+
+/* --- a breakdown inside a row -------------------------------------------- */
+/* The bills inside a pay period are the row above taken apart, not four more
+   rows at the same level. Without the inset the expanded period read as a flat
+   list and the total lost its grip on the lines that make it up. */
+.inside {
+  background: var(--page);
+  border-top: 1px solid var(--line);
+  padding-left: 16px;
+}
+.inside .item { padding-left: 0; padding-right: 16px; }
+.inside .t { font-weight: 500; }

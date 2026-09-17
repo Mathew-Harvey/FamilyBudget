@@ -705,6 +705,53 @@ not happened, so it cannot be in the balance: events carrying `kind: 'scenario'`
 apply on any day, including today. Without that, selling sixteen thousand
 dollars of motorbikes bought exactly zero days, silently.
 
+**A control decides how much you are shown, never what is true.** The Forecast
+page led with "Household runway: beyond 90 days" in the colour used for good
+news, which was the look ahead dropdown reading itself back: the same household
+at 365 days said "355 days, runs out 2027-09-07", and at every setting below a
+year the page said it did not run out at all. The default hid the finding. The
+household question is answered over a fixed 400 days now, the same length Today
+and the plan use, through the same `position()`, so all three agree whatever
+this page is set to draw. The window bound `runway_date` stays, because the
+chart must not draw a crossing outside what it is drawing. `position()` builds
+what goes out from the cost model and knows nothing about a scenario, so an
+excluded commitment is subtracted in cents afterwards, or the card disagrees
+with the curve directly beneath it.
+
+**Past a crossing there is no balance to report, in prose as well as on the
+chart.** The chart already drops its endpoint figure there. The line above it
+read "takes it to $761.91, dipping to -$718.88" under a headline saying the
+money ran out in September, which is the same second, wronger answer the chart
+rule exists to refuse. One rule, both places.
+
+**Thirty two rows down a page is a calendar nobody reads.** "What is coming up"
+listed every projected event, with the fuel stop six times and the pay five.
+They group between paydays now, because that is the stretch each lot of pay has
+to cover and it is the unit `thisPeriod` already measures. What goes out is
+taken from the balance either side rather than by adding the events up:
+everyday spending is applied as a daily rate and is not an event at all, so a
+sum of events is short by most of the groceries, and doing it this way means the
+listed rows cannot fail to add up to the curve above them. A period is only
+whole when a payday closed it, which needs one payday generated past the end of
+the window, or a fortnight that happens to end on the last day drawn is labelled
+part of a period and reads as a warning about nothing.
+
+**A bar's length is what survives, not what leaves.** Drawn as the share of the
+pay spent, the fortnight with the most spending in it had the longest bar, in
+green, directly beside a figure saying what was left over. Two marks for one
+row pointing opposite ways. And a period with no pay in it gets no bar at all
+rather than a full red one: that is the Today period card's rule, say no pay has
+landed instead of dressing arithmetic as a warning.
+
+**A commitment is named by its merchant, not by its payment rail.** The list
+showed the statement text, so on a phone the mortgage read "OSKO PAYMEN..." and
+the insurer "DIRECT DEBIT 0...", which names ING's transfer service and a direct
+debit. The cost model already resolves the merchant through `matchKeyFor`; the
+statement text moves into the detail as "The bank calls it". The tile takes the
+merchant's initials with the tier as its colour, the same tile Spending and
+Today use: "Ke", "Tr" and "Op" were a fourth vocabulary for something that
+already reads as a word in the line underneath.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against
