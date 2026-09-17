@@ -764,6 +764,24 @@ merchant's initials with the tier as its colour, the same tile Spending and
 Today use: "Ke", "Tr" and "Op" were a fourth vocabulary for something that
 already reads as a word in the line underneath.
 
+**Three tiers had four names.** The Spending page called them Must pay, Could
+trim and A choice; the Forecast page said essential, could be smaller and
+optional; the plan said "the luxury allowance"; and the API error said a
+merchant must be "essential, flexible or luxury", none of which that endpoint
+accepts, since it takes keep, trim and cut. One set of words now, the Spending
+page's, because that is where the judgement is made. "A choice" gave way to
+"optional" for the single reason that it is the one of the two that also reads
+inside a sentence, and every other page needs it there.
+
+**The Today page stated a truth about people that it cannot check.** "A decision
+with a 'when' attached gets done. One without does not." is a claim about human
+behaviour presented as fact, on the one page whose governing rule is that every
+line must be true and must agree with the rest of the app.
+`docs/behaviour.md` already had the concrete version, and the UI had shrunk it
+into a maxim: "No delivery on weeknights" is a plan, "Spend less on takeaway" is
+a mood. The example makes the same point, tells you what to type in the two
+fields below it, and claims nothing the app would have to defend.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

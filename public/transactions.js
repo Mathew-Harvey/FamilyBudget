@@ -217,8 +217,8 @@ function describeFilters(total, net) {
   if (document.getElementById('transfer').value === 'false') bits.push('no transfers');
 
   document.getElementById('filterSummary').textContent = bits.length
-    ? `${bits.join(', ')} — ${total} found, net ${formatAmount(net)}`
-    : `Everything, newest first — ${total} in total, net ${formatAmount(net)}`;
+    ? `${bits.join(', ')}. ${total} found, net ${formatAmount(net)}`
+    : `Everything, newest first. ${total} in total, net ${formatAmount(net)}`;
 }
 
 async function load(reset = false) {

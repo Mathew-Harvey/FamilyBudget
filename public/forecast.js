@@ -290,9 +290,12 @@ function renderAssumes() {
 
 // --- the commitments themselves -------------------------------------------
 
+// The Spending page's words, because that is where the judgement is made and a
+// commitment described as "essential" here and filed under "Must pay" there is
+// two names for one thing.
 const TIER_WORD = {
-  keep: 'essential',
-  trim: 'could be smaller',
+  keep: 'must pay',
+  trim: 'could trim',
   cut: 'optional',
   unknown: 'nothing has said whether this is optional',
 };

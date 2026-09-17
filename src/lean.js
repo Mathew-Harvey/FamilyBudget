@@ -67,7 +67,7 @@ export async function leanPlan({
     steps.push({
       key: 'optional',
       title: 'Stop the optional costs',
-      detail: 'The luxury allowance and active optional commitments. These are included until you choose otherwise.',
+      detail: 'The optional allowance and the subscriptions judged optional. These are included until you choose otherwise.',
       removes: [
         ...(allowanceCents > 0
           ? [{ what: 'Discretionary allowance', per_month: fromCents(allowanceCents) }]

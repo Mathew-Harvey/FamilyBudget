@@ -13,10 +13,15 @@ renderNav('/spending');
 let view = 'merchants';
 let windowDays = 120;
 
+// The one set of words for the three tiers, in the place the judgement is
+// made. They were four sets: this page said "A choice", Forecast said
+// "essential", the API error said "luxury" and the plan said "luxury
+// allowance". "Optional" replaced "A choice" because it is the only one of the
+// two that also reads inside a sentence, and the other pages need it there.
 const TIERS = [
   ['keep', 'Must pay'],
   ['trim', 'Could trim'],
-  ['cut', 'A choice'],
+  ['cut', 'Optional'],
   // Not a fourth kind of spending, the absence of a judgement about it. Drawn
   // hatched for the same reason the unreachable part of the gap on Lasting is:
   // a solid colour there would read as a fourth thing you could decide about.

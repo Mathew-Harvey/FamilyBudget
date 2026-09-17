@@ -589,9 +589,13 @@ function decisions(list, watchable) {
 
   const card = el('div', { class: 'card stack' }, [
     el('h3', { style: 'margin:0', text: 'Decisions' }),
-    // The "when" is not decoration. A decision paired with the situation that
-    // triggers it is acted on far more often than the same decision on its own.
-    el('div', { class: 'muted', text: 'A decision with a "when" attached gets done. One without does not.' }),
+    // The example pair from docs/behaviour.md rather than the maxim it was
+    // shrunk into. "A decision with a when attached gets done, one without does
+    // not" is a claim about people that this page cannot check, on the page
+    // whose whole rule is that every line must be true and checkable.
+    el('div', { class: 'muted', text:
+      'What changes, and when exactly. "No delivery on weeknights" is a plan. '
+      + '"Spend less on takeaway" is a mood.' }),
     // Wraps rather than squeezing. Five controls on one phone width turned
     // every placeholder into a truncated fragment.
     el('div', { class: 'row', style: 'flex-wrap:wrap' }, [what, when]),

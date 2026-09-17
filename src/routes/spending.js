@@ -215,7 +215,10 @@ spendingRouter.post('/merchants/:key', async (req, res, next) => {
       ended,
     } = req.body ?? {};
     if (leanTier !== undefined && leanTier !== null && !['keep', 'trim', 'cut'].includes(leanTier)) {
-      return res.status(400).json({ error: 'Forecast treatment must be essential, flexible or luxury' });
+      // Named what it takes. It used to say "essential, flexible or luxury",
+      // none of which this endpoint accepts, and none of which appear anywhere
+      // a person could read them.
+      return res.status(400).json({ error: 'A merchant is keep, trim or cut: must pay, could trim, or optional' });
     }
     const hasLeanTier = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'lean_tier');
     const { rows } = await query(
