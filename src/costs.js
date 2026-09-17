@@ -75,13 +75,26 @@ export const TIER_SQL = `
        else coalesce(m.lean_tier, cat.lean_tier, 'cut') end`;
 
 // What each tier cost over the window, on the same filter the Spending page
-// totals use, so the three add up to the figure above them.
+// totals use, so they add up to the figure above them.
+//
+// Four buckets here, not three. TIER_SQL sends anything with no judgement on it
+// to 'cut', which is the right default for a projection: it counts unassessed
+// spending as optional, which shortens the runway rather than flattering it. It
+// is the wrong thing to draw. On this household 13,051 of spending landed in
+// 'cut' and 12,771 of that had simply never been categorised, so the page was
+// reporting "52 percent is a choice" about money nobody had looked at. A
+// default is not a finding, so the default gets its own name and its own mark.
 export async function tierTotals({ window, client = { query } } = {}) {
   if (!Number.isInteger(window) || window < 1) {
     throw new TypeError('window must be a positive integer');
   }
   const { rows } = await client.query(
-    `select ${TIER_SQL} as tier,
+    // Cast to text: lean_tier is an enum and "unknown" is deliberately not one
+    // of its values, because it is the absence of a tier rather than a fourth.
+    `select case when t.to_own_debt then 'keep'
+                 when m.lean_tier is not null then m.lean_tier::text
+                 when cat.lean_tier is not null then cat.lean_tier::text
+                 else 'unknown' end as tier,
             coalesce(sum(-t.amount), 0) as spent,
             count(*)::int as transactions
        from budget_flows t
@@ -89,13 +102,14 @@ export async function tierTotals({ window, client = { query } } = {}) {
        left join categories cat on cat.id = t.category_id
       where t.counts and t.amount < 0
         and (cat.kind is null or cat.kind = 'expense')
+        and not t.one_off and not t.no_longer_expected
         and t.txn_date > current_date - $1::integer
         and t.txn_date <= current_date
       group by 1`,
     [window],
   );
   const by = new Map(rows.map((row) => [row.tier, row]));
-  return ['keep', 'trim', 'cut'].map((tier) => ({
+  return ['keep', 'trim', 'cut', 'unknown'].map((tier) => ({
     tier,
     spent: by.get(tier)?.spent ?? '0',
     transactions: by.get(tier)?.transactions ?? 0,

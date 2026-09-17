@@ -557,3 +557,10 @@ input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
   white-space: nowrap; font-weight: 560;
 }
 
+
+/* A tile for a merchant nothing has decided about yet. Hatched like the
+   unreachable part of a gap, because both are an absence rather than a kind. */
+.av.unknown {
+  background: repeating-linear-gradient(135deg, var(--line) 0 5px, var(--surface) 5px 10px);
+  border: 1px solid var(--line); color: var(--ink-2);
+}

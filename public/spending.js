@@ -17,6 +17,10 @@ const TIERS = [
   ['keep', 'Must pay'],
   ['trim', 'Could trim'],
   ['cut', 'A choice'],
+  // Not a fourth kind of spending, the absence of a judgement about it. Drawn
+  // hatched for the same reason the unreachable part of the gap on Lasting is:
+  // a solid colour there would read as a fourth thing you could decide about.
+  ['unknown', 'Not looked at'],
 ];
 
 // Two letters from the name, the same tile the Home page uses.
@@ -26,7 +30,9 @@ function initialsOf(label) {
   return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
 }
 
-const tierOf = (row) => row.lean_tier ?? row.category_tier ?? 'cut';
+// A merchant with no judgement on it gets no tier tile colour, for the same
+// reason the diagram hatches its share: 'cut' here is a default, not a finding.
+const tierOf = (row) => row.lean_tier ?? row.category_tier ?? 'unknown';
 
 // A segmented control. Three or four choices, no dropdown, no label.
 function segmented(options, selected, onPick) {
@@ -46,8 +52,16 @@ function segmented(options, selected, onPick) {
 // colour is the tier, so one mark carries both without a second column.
 function bar(value, max, tier) {
   const share = max > 0 ? Math.min(Math.max(Number(value) / max, 0), 1) : 0;
+  // There is no --tier-unknown on purpose, so that tier takes the hatch rather
+  // than a colour. Without this branch it took an undefined variable and the
+  // bar simply did not draw, which on the biggest row on the page looked like a
+  // rendering fault rather than a statement about it.
   return el('div', { class: 'track' }, [
-    el('i', { style: `width:${(share * 100).toFixed(1)}%;background:var(--tier-${tier})` }),
+    el('i', {
+      class: tier === 'unknown' ? 'unreachable' : null,
+      style: `width:${(share * 100).toFixed(1)}%`
+        + (tier === 'unknown' ? '' : `;background:var(--tier-${tier})`),
+    }),
   ]);
 }
 
@@ -59,6 +73,8 @@ function renderHead(data) {
 
   const total = data.by_tier.reduce((sum, row) => sum + Number(row.spent), 0);
   const days = data.days_of_history ?? data.window_days;
+  const unknownRow = data.by_tier.find((row) => row.tier === 'unknown') ?? { spent: '0' };
+  const unknown = Number(unknownRow.spent);
 
   head.append(el('div', { class: 'card' }, [
     el('span', { class: 'state' }, [
@@ -67,27 +83,54 @@ function renderHead(data) {
     ]),
     el('div', { class: 'figure', text: formatAmount(data.total.per_month) }),
     el('div', { class: 'delta' }, [
-      el('span', { class: 'q', text: `a month, from ${formatAmount(data.total.spent)} in total` }),
+      el('span', { class: 'q', text: 'a month, at the rate this is running at' }),
     ]),
 
-    // The diagram. Three segments in tier order, and the key below is the same
-    // three in the same order, so it reads as one thing.
+    // The diagram. The segments are in tier order and the key below is the same
+    // order, so it reads as one thing.
     el('div', { class: 'split', style: 'margin-top:18px' },
-      data.by_tier
-        .filter((row) => Number(row.spent) > 0)
-        .map((row) => el('i', {
-          style: `flex:${Number(row.spent)};background:var(--tier-${row.tier})`,
-          title: `${TIERS.find(([t]) => t === row.tier)[1]}: ${formatAmount(row.spent)}`,
-        }))),
+      TIERS.map(([tier, label]) => {
+        const row = data.by_tier.find((r) => r.tier === tier);
+        if (!row || Number(row.spent) <= 0) return null;
+        return el('i', {
+          class: tier === 'unknown' ? 'unreachable' : null,
+          style: `flex:${Number(row.spent)}`
+            + (tier === 'unknown' ? '' : `;background:var(--tier-${tier})`),
+          title: `${label}: ${formatAmount(row.spent)}`,
+        });
+      })),
     el('div', { class: 'keys' }, TIERS.map(([tier, label]) => {
       const row = data.by_tier.find((r) => r.tier === tier) ?? { spent: '0' };
       const share = total > 0 ? Math.round((Number(row.spent) / total) * 100) : 0;
+      if (tier === 'unknown' && share === 0) return null;
       return el('span', {}, [
-        el('i', { style: `background:var(--tier-${tier})` }),
+        el('i', { class: tier === 'unknown' ? 'unreachable' : null,
+          style: tier === 'unknown' ? null : `background:var(--tier-${tier})` }),
         el('span', { text: `${label} ` }),
         el('b', { text: `${share}%` }),
       ]);
     })),
+
+    // What the hatching means, and where to go about it. Without this the page
+    // was calling half the household's spending "a choice" on the strength of a
+    // default nobody had chosen, which is the same mistake the allowance made.
+    unknown > 0 ? el('p', { class: 'muted small', style: 'margin:14px 0 0' }, [
+      el('span', { text: `${formatAmount(unknownRow.spent)} has never been categorised, `
+        + 'so nothing here knows whether it was a choice. ' }),
+      el('a', { href: '/transactions', text: 'File it' }),
+      el('span', { text: ' and these shares become real.' }),
+    ]) : null,
+
+    // What left against what it runs at. A rate is not a total and this page was
+    // printing one as the other: with an 11,000 dollar engine rebuild in the
+    // window the headline read 6,339 a month, which was true of no month and
+    // matched nothing else in the app.
+    el('p', { class: 'muted small', style: 'margin:10px 0 0', text:
+      `${formatAmount(data.total.spent)} actually left over ${days} days`
+      + (Number(data.total.one_offs) > 0
+        ? `, including ${formatAmount(data.total.one_offs)} marked as never happening again. `
+          + 'That stays in the total and out of the rate.'
+        : '.') }),
   ]));
 }
 
@@ -197,12 +240,39 @@ async function merchantDetail(row) {
       el('label', { class: 'row', style: 'gap:7px;flex:none' }, [ended, el('span', { class: 's', text: 'Finished with' })]),
       save,
     ]),
-    el('div', { class: 'stack', style: 'gap:6px' }, transactions.slice(0, 20).map((t) =>
-      el('div', { class: 'row spread', style: 'gap:10px' }, [
-        el('span', { class: 's truncate grow', text: t.display_description || t.description }),
-        el('span', { class: 'amount out small', text: formatAmount(t.amount) }),
+    el('div', { class: 'stack', style: 'gap:6px' }, transactions.slice(0, 20).map((t) => {
+      // Marking one here rather than only on the Forecast page, which lists the
+      // large ones at rarely seen merchants. This is the one place in the app
+      // that shows a merchant's payments next to what it is costing a month,
+      // which is exactly when you notice one of them does not belong.
+      const once = el('button', {
+        class: 'small',
+        style: 'flex:none;padding:3px 9px;font-size:0.72rem',
+        text: t.one_off ? 'back in' : 'one off',
+      });
+      once.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        once.disabled = true;
+        try {
+          await api('/api/spending/one-off', {
+            method: 'POST',
+            body: { ids: [t.id], one_off: !t.one_off },
+          });
+          showError('');
+          render();
+        } catch (err) {
+          showError(err.message);
+          once.disabled = false;
+        }
+      });
+      return el('div', { class: 'row spread', style: 'gap:10px' }, [
+        el('span', { class: `s truncate grow${t.one_off ? ' muted' : ''}`,
+          text: `${t.display_description || t.description}${t.one_off ? ', out of the rate' : ''}` }),
+        el('span', { class: `amount small ${t.one_off ? 'muted' : 'out'}`, text: formatAmount(t.amount) }),
         el('span', { class: 's', style: 'flex:none', text: formatDate(t.txn_date).slice(5) }),
-      ]))),
+        once,
+      ]);
+    })),
   ];
 }
 

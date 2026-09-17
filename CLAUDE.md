@@ -477,6 +477,25 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**A default is not a finding, and the Spending page was drawing one as the
+other.** `TIER_SQL` sends anything with no judgement on it to `cut`, which is
+right for a projection: unassessed spending counted as optional shortens the
+runway rather than flattering it. It is wrong to draw. The page reported "A
+choice 52 percent" about money nobody had ever looked at, so `tierTotals`
+returns a fourth bucket, `unknown`, which is the absence of a tier and not a
+member of the enum. It is hatched, like the unreachable part of a gap on
+Lasting, because a solid colour there reads as a fourth kind of spending you
+could decide about. `TIER_SQL` itself is unchanged: the projection still wants
+the conservative default.
+
+**A rate and a total are two different claims.** The Spending page made one of
+them twice. Every rate in this app excludes one offs; this page's monthly figure
+did not, so an 11,000 dollar engine rebuild already marked as never happening
+again was adding 2,790 a month to a headline that matched nothing else in the
+app. The total is what actually left, one offs and all, because that is what the
+page is a record of. The monthly figure is a rate and excludes them, and the
+difference is named underneath rather than left to be discovered.
+
 **A category's name had the least room on the page.** Every one of the twenty
 five was an always editable text box squeezed to half a word by the kind
 dropdown beside it, which holds one of four values and took twice the width:

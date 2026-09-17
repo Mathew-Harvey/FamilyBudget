@@ -80,12 +80,54 @@ spendingRouter.get('/', async (req, res, next) => {
       .sort((a, b) => a.order - b.order)
       .map(({ order, ...group }) => group);
 
+    // A rate and a total are two different claims and this page was making one
+    // of them twice. The total is what actually left, one offs and all, because
+    // that is what this page is a record of. The monthly figure is a rate, and
+    // every rate in this app excludes one offs, so this one has to as well or
+    // the headline disagrees with Home: an 11,000 dollar engine rebuild, already
+    // marked as never happening again, was adding 2,790 a month to a figure
+    // nothing else in the app was carrying.
+    const { rows: [ongoing] } = await query(
+      `select coalesce(sum(-t.amount), 0) as spent,
+              round(coalesce(sum(-t.amount), 0) * 30.44 / $2, 2) as per_month,
+              coalesce(sum(-t.amount) filter (where t.one_off or t.no_longer_expected), 0) as once,
+              count(*) filter (where t.one_off or t.no_longer_expected)::int as once_count
+         from budget_flows t
+         left join categories cat on cat.id = t.category_id
+        where t.counts and t.amount < 0
+          and (cat.kind is null or cat.kind = 'expense')
+          and not t.one_off and not t.no_longer_expected
+          and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date`,
+      [days, over],
+    );
+    const { rows: [excluded] } = await query(
+      `select coalesce(sum(-t.amount), 0) as once,
+              count(*)::int as once_count
+         from budget_flows t
+         left join categories cat on cat.id = t.category_id
+        where t.counts and t.amount < 0
+          and (cat.kind is null or cat.kind = 'expense')
+          and (t.one_off or t.no_longer_expected)
+          and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date`,
+      [days],
+    );
+
     res.json({
       window_days: days,
       days_of_history: over,
-      total: { spent: total.spent, per_month: total.per_month, transactions: total.transactions },
-      // How much of this is even changeable. Summed in SQL on the same filter
-      // as the total above, so the three add up to it.
+      total: {
+        // What left, every dollar of it.
+        spent: total.spent,
+        transactions: total.transactions,
+        // What it runs at, on the same basis as every other rate in the app.
+        per_month: ongoing.per_month,
+        ongoing: ongoing.spent,
+        one_offs: excluded.once,
+        one_off_transactions: excluded.once_count,
+      },
+      // How much of this is even changeable, on the same basis as the rate.
       by_tier: await tierTotals({ window: days }),
       groups,
     });
@@ -141,6 +183,7 @@ spendingRouter.get('/merchants/:key/transactions', async (req, res, next) => {
     const days = windowFrom(req);
     const { rows } = await query(
       `select t.id, t.txn_date, t.amount, t.description, t.display_description,
+              t.one_off,
               a.bank, a.masked_number, cat.name as category
          from budget_flows t
          join accounts a on a.id = t.account_id
