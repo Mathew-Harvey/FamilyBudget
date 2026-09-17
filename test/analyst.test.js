@@ -338,3 +338,29 @@ test('a manual account survives a sync, which only ever touches Redbark ones', a
   const { rows } = await pool.query("select count(*)::int as n from accounts where source = 'manual'");
   assert.equal(rows[0].n, 1);
 });
+
+test('nothing an account carries reaches the snapshot unscrubbed, notes included', async () => {
+  // Every label in the snapshot goes through scrubLabel. notes did not, and it
+  // is free text someone typed about an account, which is the single most
+  // likely place in this database for a BSB and an account number to be sitting
+  // in full. The name beside it was already being scrubbed.
+  const pool = await getTestPool();
+  const card = await makeAccount(pool, {
+    masked_number: 'xxxx1111',
+    is_liquid: false,
+    name: 'Card 41728394',
+  });
+  // makeAccount does not carry notes, and the column is set from the Accounts
+  // page rather than by the sync, so it goes in the same way here.
+  await pool.query('update accounts set notes = $2 where id = $1', [
+    card.id, 'Mat card, BSB 306089 acct 41728394',
+  ]);
+
+  const snapshot = await buildSnapshot(pool);
+  const payload = JSON.stringify(snapshot);
+  assert.ok(!payload.includes('306089'), 'a BSB must not leave the machine');
+  assert.ok(!payload.includes('41728394'), 'an account number must not leave the machine');
+  const [account] = snapshot.accounts;
+  assert.equal(account.notes, 'Mat card, BSB #### acct ####');
+  assert.equal(account.name, 'Card ####');
+});

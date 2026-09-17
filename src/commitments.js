@@ -227,7 +227,10 @@ export function scheduleCommitments(rows, from, to) {
   const end = toDate(to);
 
   for (const commitment of rows) {
-    if (!commitment.next_due || !commitment.cadence_days) continue;
+    // A cadence has to step forward. A zero or negative one walks the loops
+    // below backwards instead of terminating, so it is refused here as well as
+    // at the API: this is the one place that turns a cadence into dates.
+    if (!commitment.next_due || !(Number(commitment.cadence_days) > 0)) continue;
     let due = toDate(commitment.next_due);
     // A commitment whose due date has already passed is expected imminently
     // rather than in the past, so walk it forward to the window.

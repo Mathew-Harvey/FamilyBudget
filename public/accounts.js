@@ -8,6 +8,8 @@ const ROLES = [
   ['personal_everyday', 'Personal everyday'],
   ['personal_savings', 'Personal savings'],
   ['mortgage', 'Mortgage'],
+  ['credit_card', 'Credit card'],
+  ['personal_loan', 'Personal loan'],
   ['other', 'Other'],
 ];
 

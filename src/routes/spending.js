@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { effectiveWindowDays } from '../costs.js';
 import { matchKeyFor } from '../commitments.js';
 
 export const spendingRouter = Router();
@@ -18,6 +19,10 @@ const windowFrom = (req) =>
 spendingRouter.get('/', async (req, res, next) => {
   try {
     const days = windowFrom(req);
+    // What left, divided by the days there is history for rather than the days
+    // asked for. See coveredDays: on a database younger than the window the two
+    // differ, and this page read a third low against every other page.
+    const over = await effectiveWindowDays(days);
 
     const { rows: categories } = await query(
       `select coalesce(grp.name, 'Uncategorised') as group_name,
@@ -26,28 +31,30 @@ spendingRouter.get('/', async (req, res, next) => {
               cat.id                              as category_id,
               count(*)::int                       as transactions,
               sum(-t.amount)                      as spent,
-              round(sum(-t.amount) * 30.44 / $1, 2) as per_month
+              round(sum(-t.amount) * 30.44 / $2, 2) as per_month
          from budget_flows t
          left join categories cat on cat.id = t.category_id
          left join categories grp on grp.id = cat.parent_id
         where t.counts and t.amount < 0
           and (cat.kind is null or cat.kind = 'expense')
           and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date
         group by grp.name, grp.sort_order, cat.name, cat.id
         order by group_order, sum(-t.amount) desc`,
-      [days],
+      [days, over],
     );
 
     const { rows: totals } = await query(
       `select coalesce(sum(-t.amount), 0) as spent,
-              round(coalesce(sum(-t.amount), 0) * 30.44 / $1, 2) as per_month,
+              round(coalesce(sum(-t.amount), 0) * 30.44 / $2, 2) as per_month,
               count(*)::int as transactions
          from budget_flows t
          left join categories cat on cat.id = t.category_id
         where t.counts and t.amount < 0
           and (cat.kind is null or cat.kind = 'expense')
-          and t.txn_date > current_date - $1::integer`,
-      [days],
+          and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date`,
+      [days, over],
     );
 
     // Grouped for the page, so it does not have to do the nesting itself.
@@ -64,15 +71,16 @@ spendingRouter.get('/', async (req, res, next) => {
     const { rows: groupTotals } = await query(
       `select coalesce(grp.name, 'Uncategorised') as group_name,
               sum(-t.amount) as spent,
-              round(sum(-t.amount) * 30.44 / $1, 2) as per_month
+              round(sum(-t.amount) * 30.44 / $2, 2) as per_month
          from budget_flows t
          left join categories cat on cat.id = t.category_id
          left join categories grp on grp.id = cat.parent_id
         where t.counts and t.amount < 0
           and (cat.kind is null or cat.kind = 'expense')
           and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date
         group by grp.name`,
-      [days],
+      [days, over],
     );
     for (const group of groups) {
       const total = groupTotals.find((g) => g.group_name === group.name);
@@ -82,7 +90,7 @@ spendingRouter.get('/', async (req, res, next) => {
       }
     }
 
-    res.json({ window_days: days, total: totals[0], groups });
+    res.json({ window_days: days, days_of_history: over, total: totals[0], groups });
   } catch (err) {
     next(err);
   }
@@ -92,6 +100,7 @@ spendingRouter.get('/', async (req, res, next) => {
 spendingRouter.get('/merchants', async (req, res, next) => {
   try {
     const days = windowFrom(req);
+    const over = await effectiveWindowDays(days);
     const categoryId = req.query.category_id || null;
 
     const { rows } = await query(
@@ -104,7 +113,7 @@ spendingRouter.get('/merchants', async (req, res, next) => {
               count(*)::int                       as transactions,
               count(distinct t.txn_date)::int     as days_paid,
               sum(-t.amount)                      as spent,
-              round(sum(-t.amount) * 30.44 / $1, 2) as per_month,
+              round(sum(-t.amount) * 30.44 / $3, 2) as per_month,
               min(t.txn_date)                     as first_seen,
               max(t.txn_date)                     as last_seen,
               max(cat.name)                       as category
@@ -114,13 +123,14 @@ spendingRouter.get('/merchants', async (req, res, next) => {
         where t.counts and t.amount < 0
           and (cat.kind is null or cat.kind = 'expense')
           and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date
           and ($2::uuid is null or t.category_id = $2::uuid)
         group by coalesce(m.display_name, t.merchant_key, 'Not described by the bank')
         order by sum(-t.amount) desc
         limit 200`,
-      [days, categoryId],
+      [days, categoryId, over],
     );
-    res.json({ window_days: days, merchants: rows });
+    res.json({ window_days: days, days_of_history: over, merchants: rows });
   } catch (err) {
     next(err);
   }
@@ -141,6 +151,7 @@ spendingRouter.get('/merchants/:key/transactions', async (req, res, next) => {
         where t.counts
           and (t.merchant_key = $2 or m.display_name = $2)
           and t.txn_date > current_date - $1::integer
+          and t.txn_date <= current_date
         order by t.txn_date desc
         limit 100`,
       [days, req.params.key],

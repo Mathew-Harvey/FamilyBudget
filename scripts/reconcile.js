@@ -188,10 +188,15 @@ const forecastContext = await buildForecastContext({ window: WINDOW });
 const here = await position({ window: WINDOW, forecastContext });
 const { costs } = forecastContext;
 const rate = costs.rate;
+// Divided by the days there is history for, the same divisor the household
+// plan uses. Dividing by the window asked for would make this check disagree
+// with the figure it is checking on any database younger than the window.
+const over = rate.effective_days;
 const { rows: [flow] } = await query(`
-  select round(sum(-amount) * 30.44 / $1, 2) as all_out,
-         round(sum(-amount) filter (where not one_off and not no_longer_expected) * 30.44 / $1, 2) as in_rate
-    from budget_flows where counts and amount < 0 and txn_date > current_date - $1::integer`, [WINDOW]);
+  select round(sum(-amount) * 30.44 / $2, 2) as all_out,
+         round(sum(-amount) filter (where not one_off and not no_longer_expected) * 30.44 / $2, 2) as in_rate
+    from budget_flows where counts and amount < 0
+      and txn_date > current_date - $1::integer and txn_date <= current_date`, [WINDOW, over]);
 
 console.log(`        ${money(flow.all_out).padStart(14)}  a month left a spendable account`);
 console.log(`        ${money(flow.in_rate).padStart(14)}  a month after one offs and finished merchants come out`);

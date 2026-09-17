@@ -173,11 +173,21 @@ async function merchantRows(categoryId = null) {
   });
 }
 
+// The rate is what left divided by the days there is history for, which is not
+// the window asked for until the database is old enough. Saying "over 120 days"
+// while dividing by 75 describes arithmetic the page did not do.
+function totalNote(data) {
+  const days = data.days_of_history ?? data.window_days;
+  const note = `a month, from ${formatAmount(data.total.spent)} over ${days} days`;
+  return days < data.window_days
+    ? `${note}, which is all the history there is in the last ${data.window_days}`
+    : note;
+}
+
 async function renderGroups() {
   const data = await api(`/api/spending?window=${windowDays()}`);
   document.getElementById('total').textContent = formatAmount(data.total.per_month);
-  document.getElementById('totalNote').textContent =
-    `a month, from ${formatAmount(data.total.spent)} over ${data.window_days} days`;
+  document.getElementById('totalNote').textContent = totalNote(data);
 
   const max = Math.max(...data.groups.map((g) => Number(g.per_month)));
   const body = document.getElementById('body');
@@ -208,8 +218,7 @@ async function renderGroups() {
 async function renderMerchants() {
   const data = await api(`/api/spending?window=${windowDays()}`);
   document.getElementById('total').textContent = formatAmount(data.total.per_month);
-  document.getElementById('totalNote').textContent =
-    `a month, from ${formatAmount(data.total.spent)} over ${data.window_days} days`;
+  document.getElementById('totalNote').textContent = totalNote(data);
 
   const body = document.getElementById('body');
   body.innerHTML = '';

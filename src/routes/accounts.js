@@ -2,7 +2,12 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 
-const ROLES = ['joint_everyday', 'personal_everyday', 'personal_savings', 'mortgage', 'other'];
+// The roles the accounts table allows. Credit card and personal loan were
+// missing here while the column accepted them and the manual account form
+// offered them as types, so the two debts a household most wants to label were
+// the two the UI refused to save.
+const ROLES = ['joint_everyday', 'personal_everyday', 'personal_savings', 'mortgage',
+  'credit_card', 'personal_loan', 'other'];
 
 export const accountsRouter = Router();
 

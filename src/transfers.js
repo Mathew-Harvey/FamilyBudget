@@ -12,6 +12,7 @@
 // which would pair unrelated rows.
 import { query, withTransaction } from './db.js';
 import { daysBetween, normaliseDescription, toDateOnly } from './matching.js';
+import { numericToCents } from './money.js';
 
 const MAX_DAYS_APART = 3;
 
@@ -404,7 +405,10 @@ export async function resolveReversals(options = {}) {
     const pairs = [];
 
     for (const row of rows) {
-      const cents = Math.round(Number(row.amount) * 100);
+      // numericToCents, not Math.round(Number(x) * 100): that is float
+      // arithmetic on an amount, which is the thing money.js exists to
+      // prevent, and it silently rounds a value that should have been refused.
+      const cents = numericToCents(row.amount);
       if (cents < 0) {
         if (alreadyCancelled.has(row.id)) continue;
         const key = keyFor(row.merchant_key, -cents);

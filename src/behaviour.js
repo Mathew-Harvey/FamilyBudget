@@ -154,6 +154,17 @@ export async function position({
       Math.round((rate.recurring_essential_per_day_cents * 3044) / 100),
     ),
     discretionary_per_month: fromCents(costs.discretionary_allowance_cents),
+    // What optional day to day spending has actually been running at, which the
+    // allowance above replaces in the plan. The Forecast page already showed
+    // this; Today did not, so a household whose allowance was still at zero
+    // read "more is coming in than going out" against an "out" that left out
+    // every dollar of it. The plan is unchanged: this is the context
+    // docs/behaviour.md requires to stay visible rather than a second figure
+    // anything is computed from.
+    optional_history_per_month: fromCents(costs.historical_discretionary_per_month_cents),
+    optional_history_excluded: fromCents(
+      Math.max(costs.historical_discretionary_per_month_cents - costs.discretionary_allowance_cents, 0),
+    ),
     committed_per_month: fromCents(committedMonthly),
     living_per_month: fromCents(outMonthly - debtMonthly),
     debt_per_month: fromCents(debtMonthly),
@@ -535,22 +546,32 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
           order by balance_date desc limit 1
        ) b on true
        left join lateral (
-         -- The window, or the days since the first payment if that is shorter.
+         -- The window, or the days this debt has been paid for if that is
+         -- shorter.
          --
          -- Two things had to be true at once. It has to use the same window as
          -- the headline, or the rows in this card do not add up to the "paying
          -- down debt" figure directly above them and the page contradicts
          -- itself. And it must not divide by days an account did not exist for,
          -- which is the same defect everydaySpendRate had. least() does both.
-         select sum(-t.amount) * 30.44
+         --
+         -- The second of those is about how long the debt has been serviced,
+         -- so the first payment it measures from is the first one ever, not
+         -- the first one inside the window. Taking it from inside meant the
+         -- denominator started at the earliest payment the window happened to
+         -- catch, which for anything monthly is about a cadence after the
+         -- window opens: the mortgage was divided by 106 days instead of 120
+         -- and reported at 2,814 a month against a real 2,450. The window is
+         -- therefore applied with a filter rather than in the where clause, so
+         -- the totals stay windowed while the span does not.
+         select sum(-t.amount) filter (where t.txn_date > current_date - $1::integer) * 30.44
                   / greatest(least($1::integer, current_date - min(t.txn_date)), 30) as per_month,
-                count(*)::int as payments,
-                sum(-t.amount) as paid_in_window,
-                min(t.txn_date) as first_payment
+                count(*) filter (where t.txn_date > current_date - $1::integer)::int as payments,
+                sum(-t.amount) filter (where t.txn_date > current_date - $1::integer) as paid_in_window,
+                min(t.txn_date) filter (where t.txn_date > current_date - $1::integer) as first_payment
            from budget_flows t
            left join merchants m on m.match_key = t.merchant_key
           where t.counts and t.to_own_debt
-            and t.txn_date > current_date - $1::integer
             and (m.pays_account_id = a.id
                  or t.internal_to_account_id = a.id
                  or exists (

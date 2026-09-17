@@ -23,6 +23,39 @@ function allowanceFrom(value) {
   }
 }
 
+// How many days a window of this length actually has history for.
+//
+// A rate is what left divided by the time it left over, and on a database
+// younger than the window those are not the same number. Dividing by the days
+// asked for rather than the days covered understates the rate badly: 75 days of
+// spending divided by a 120 day window reads a third low, and every page that
+// does it disagrees with every page that does not.
+//
+// One definition, for the same reason matchKeyFor has one. Every page that
+// turns a windowed total into a per month figure divides by this.
+export function coveredDays(earliest, window) {
+  if (!Number.isInteger(window) || window < 1) {
+    throw new TypeError('window must be a positive integer');
+  }
+  const covered = earliest
+    ? Math.round(
+        (Date.parse(`${householdToday()}T00:00:00Z`) -
+          Date.parse(`${String(earliest).slice(0, 10)}T00:00:00Z`)) /
+          DAY_MS,
+      ) + 1
+    : window;
+  return Math.max(Math.min(window, covered), 1);
+}
+
+// The same figure, read straight from the database. For the pages that want the
+// divisor without loading a whole cost model.
+export async function effectiveWindowDays(window, client = { query }) {
+  const { rows: [row] } = await client.query(
+    'select min(txn_date) as earliest from budget_flows where counts and amount < 0',
+  );
+  return coveredDays(row?.earliest, window);
+}
+
 export async function buildCostModel({ window, client = { query } } = {}) {
   if (!Number.isInteger(window) || window < 1) {
     throw new TypeError('cost model window must be a positive integer');
@@ -141,14 +174,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
        from budget_flows
       where counts and amount < 0`,
   );
-  const covered = context.earliest
-    ? Math.round(
-        (Date.parse(`${householdToday()}T00:00:00Z`) -
-          Date.parse(`${context.earliest}T00:00:00Z`)) /
-          DAY_MS,
-      ) + 1
-    : window;
-  const effectiveDays = Math.max(Math.min(window, covered), 1);
+  const effectiveDays = coveredDays(context.earliest, window);
 
   const grouped = new Map();
   let essentialCents = 0;

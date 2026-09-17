@@ -28,6 +28,17 @@ import { api, el, formatAmount, renderNav, showError } from '/app.js';
 renderNav('/today');
 
 const money = (value) => formatAmount(value);
+// Integer cents to a 2dp string without dividing by 100, which is float
+// arithmetic on an amount. Same conversion money.js does on the server.
+const centsToText = (cents) => {
+  const negative = cents < 0;
+  const abs = Math.abs(cents);
+  const part = abs % 100;
+  // abs - part is an exact multiple of 100, so this division is exact in IEEE
+  // 754 for every value we allow. Never abs / 100 directly. Same as money.js.
+  const whole = (abs - part) / 100;
+  return `${negative ? '-' : ''}${whole}.${String(part).padStart(2, '0')}`;
+};
 const abs = (value) => formatAmount(String(value).replace('-', ''));
 
 // The opening. One sentence someone can repeat to the other person in the
@@ -37,11 +48,26 @@ function headline(position) {
   box.innerHTML = '';
   box.className = 'card stack';
 
+  // What the household plan leaves out, said here rather than only on the
+  // Forecast page. "Out" is the plan's figure: recurring essentials, the
+  // allowance and the commitments. Optional day to day spending is replaced by
+  // the allowance, so with the allowance still at zero the difference is every
+  // dollar of it, and a headline that does not mention that is describing a
+  // household nobody lives in.
+  const excluded = Number(position.optional_history_excluded ?? 0);
+  const excludedNote = excluded > 0
+    ? el('p', { class: 'muted', style: 'margin:0' , text:
+        `"Out" is the household plan. It does not include the ${money(position.optional_history_excluded)} a month `
+        + `of optional day to day spending recent history shows, which the plan replaces with an allowance of `
+        + `${money(position.discretionary_per_month)}. Set that allowance on the Forecast page.` })
+    : null;
+
   if (!position.going_backwards) {
     box.append(
       el('div', { class: 'muted', text: 'Where you stand' }),
       el('div', { style: 'font-size:1.6rem;font-weight:600', text: `${money(position.in_per_month)} in, ${money(position.out_per_month)} out` }),
-      el('p', { text: 'More is coming in than going out. The gap is going the right way.' }),
+      el('p', { style: 'margin:0 0 0.5rem', text: 'More is coming in than going out. The gap is going the right way.' }),
+      excludedNote,
     );
     return;
   }
@@ -78,10 +104,12 @@ function headline(position) {
       ]),
     ]),
     el('p', { class: 'muted', style: 'margin-bottom:0' , text:
-      `That is ${money(String(position.daily_gap_cents / 100))} a day more going out than coming in. `
+      `That is ${money(centsToText(position.daily_gap_cents))} a day more going out than coming in. `
       + `The plan includes ${money(position.recurring_essential_per_month)} a month of recurring essentials, `
       + `${money(position.discretionary_per_month)} discretionary, and active commitments.` }),
   );
+
+  if (excludedNote) box.append(excludedNote);
 
   for (const warning of position.warnings ?? []) {
     box.append(el('p', { class: 'warn', text: warning.message }));

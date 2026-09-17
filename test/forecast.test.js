@@ -2,9 +2,10 @@
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helpers.js';
-import { assessSchedule, matchKeyFor, detectCommitments, median, medianCents } from '../src/commitments.js';
+import { assessSchedule, matchKeyFor, detectCommitments, median, medianCents, scheduleCommitments } from '../src/commitments.js';
 import { forecast, liquidBalance, everydaySpendRate } from '../src/forecast.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
+import { coveredDays, effectiveWindowDays } from '../src/costs.js';
 import { evaluateAlerts, runAlerts, updateSettings } from '../src/alerts.js';
 import { sendEmail } from '../src/email.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
@@ -790,4 +791,48 @@ test('a future pay anchor starts full pay there, with a partial pay modeled once
     .filter((event) => event.kind === 'expected_income');
   assert.equal(partialEvents.length, 1);
   assert.equal(partialEvents[0].amount, '250.00');
+});
+
+test('a rate divides by the days there is history for, not the days asked for', async () => {
+  // The Spending page divided by the window it asked for while the cost model
+  // divided by the days covered, so on a database younger than the window the
+  // two pages reported the same spending nearly twice apart: 4,007 a month
+  // against 7,873. coveredDays is the one definition both now use.
+  assert.equal(coveredDays(daysAgo(74), 120), 75);
+  assert.equal(coveredDays(daysAgo(400), 120), 120);
+  // Nothing recorded yet: there is no evidence either way, so the window stands.
+  assert.equal(coveredDays(null, 120), 120);
+  assert.equal(coveredDays(today(), 30), 1);
+
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  for (let i = 0; i < 60; i += 2) {
+    await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -10000, description: `SHOP ${i}` });
+  }
+  // 59 days of history read through a 120 day window.
+  assert.equal(await effectiveWindowDays(120, pool), 59);
+  const rate = await everydaySpendRate(120, pool);
+  assert.equal(rate.effective_days, 59);
+});
+
+test('a commitment that steps backwards is refused rather than scheduled', async () => {
+  // A cadence is how many days forward to the next occurrence. Zero or less
+  // walks the scheduling loop backwards instead of ending it: a cadence of -30
+  // produced three million events before a Date ran out of range, and every
+  // projection filters on cadence_days > 0, so the row was invisible to the
+  // forecast while the page went on listing it as active.
+  const events = scheduleCommitments(
+    [{ id: 'x', label: 'backwards', typical_amount: '-10.00', cadence_days: -30, next_due: addDays(today(), 14) }],
+    today(),
+    addDays(today(), 90),
+  );
+  assert.deepEqual(events, []);
+  assert.deepEqual(
+    scheduleCommitments(
+      [{ id: 'x', label: 'nowhere', typical_amount: '-10.00', cadence_days: 0, next_due: today() }],
+      today(),
+      addDays(today(), 90),
+    ),
+    [],
+  );
 });

@@ -15,6 +15,7 @@ import { query, withTransaction } from './db.js';
 import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { today, daysFromNow } from './dates.js';
 import { getPayCycle, currentPeriod, periodState } from './buckets.js';
+import { effectiveWindowDays } from './costs.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
 
@@ -291,7 +292,10 @@ export async function buildSnapshot(client = { query }) {
       tracked_by: account.source,
       balance: account.balance,
       balance_date: account.balance_date,
-      notes: account.notes,
+      // Free text someone typed, which is where "BSB 306089 acct 41728394"
+      // ends up. Every field in this snapshot goes through the scrub, and this
+      // one was the exception.
+      notes: scrubLabel(account.notes),
     })),
     income_streams: incomeStreams.map((stream) => ({ ...stream, label: scrubLabel(stream.label) })),
     commitments: commitments.map((commitment) => ({ ...commitment, label: scrubLabel(commitment.label) })),
@@ -540,15 +544,16 @@ export async function trimmableSpend(client = { query }, { days = DEFAULT_SPEND_
     `select grp.name as group_name, cat.name as category,
             count(*)::int as transactions,
             sum(-t.amount) as spent_in_window,
-            round(sum(-t.amount) * 30.44 / $1, 2) as per_month
+            round(sum(-t.amount) * 30.44 / $2, 2) as per_month
        from budget_flows t
        join categories cat on cat.id = t.category_id
        left join categories grp on grp.id = cat.parent_id
       where t.counts and t.amount < 0 and cat.kind = 'expense'
         and t.txn_date > current_date - $1::integer
+        and t.txn_date <= current_date
       group by grp.name, cat.name
       order by sum(-t.amount) desc`,
-    [days],
+    [days, await effectiveWindowDays(days, client)],
   );
 
   return {

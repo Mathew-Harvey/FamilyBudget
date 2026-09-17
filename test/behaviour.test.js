@@ -280,3 +280,65 @@ test('the debts card adds up to the headline debt figure', async () => {
     `headline ${here.debt_per_month} should match the rows ${rows.toFixed(2)}`,
   );
 });
+
+test('a monthly debt is rated over the window, not over the payments the window caught', async () => {
+  // The denominator used to be the days since the FIRST PAYMENT INSIDE the
+  // window. For anything monthly that lands about a cadence after the window
+  // opens, so a 120 day window became 106 days and every established debt was
+  // reported 13 percent high: the mortgage read 2,814 a month against a real
+  // 2,450, and the debts card stopped adding up to the headline above it.
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  const loan = await makeAccount(pool, { masked_number: null, is_liquid: false, name: 'A mortgage' });
+  await pool.query(
+    "insert into balances (account_id, balance_date, balance) values ($1, current_date, '-400000.00')",
+    [loan.id],
+  );
+  await pool.query(
+    "insert into merchants (match_key, display_name, source, pays_account_id) values ('HOME LOAN','Home Loan','manual',$1)",
+    [loan.id],
+  );
+  // Fourteen months of a 2,450 repayment, every 30 days. Four of them fall
+  // inside a 120 day window, the earliest of them 106 days ago.
+  for (let i = 0; i < 14; i++) {
+    await addTxn(pool, everyday.id, {
+      date: daysAgo(16 + i * 30), cents: -245000, description: 'HOME LOAN', merchantKey: 'HOME LOAN',
+    });
+  }
+
+  const [row] = await debts({ client: pool, window: 120 });
+  // Four payments in 120 days is 9,800, which over 30.44 day months is 2,485.93.
+  // Anything near 2,814 means the span is being measured from inside the window
+  // again.
+  assert.equal(row.per_month, '2485.93');
+  assert.equal(row.per_year, '29400.00');
+});
+
+test('the position says what the plan leaves out, not just what it includes', async () => {
+  // "Out" is the household plan: recurring essentials, the allowance and the
+  // commitments. Optional day to day spending is replaced by the allowance, so
+  // while that allowance is still zero the difference is every dollar of it. A
+  // headline that reports the plan's "out" without saying so is describing a
+  // household nobody lives in.
+  const pool = await getTestPool();
+  const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
+  await pool.query(
+    "insert into balances (account_id, balance_date, balance) values ($1, current_date, '5000.00')",
+    [everyday.id],
+  );
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  // Uncategorised spending falls to the 'cut' tier, which is what the allowance
+  // replaces.
+  for (let i = 0; i < 60; i += 2) {
+    await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -10000, description: `CAFE ${i}`, merchantKey: `CAFE${i}` });
+  }
+
+  const here = await position({ client: pool });
+  assert.ok(
+    Number(here.optional_history_per_month) > 0,
+    'the optional spending the plan set aside has to be reported somewhere',
+  );
+  assert.equal(here.discretionary_per_month, '0.00');
+  assert.equal(here.optional_history_excluded, here.optional_history_per_month);
+});

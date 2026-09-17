@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts } from '../behaviour.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
+import { numericToCents } from '../money.js';
 
 export const behaviourRouter = Router();
 
@@ -108,8 +109,14 @@ behaviourRouter.post('/change-point', async (req, res, next) => {
 behaviourRouter.post('/trade-off', async (req, res, next) => {
   try {
     const { monthly = 0, commitment_ids: commitmentIds = [] } = req.body ?? {};
-    const monthlyCents = Math.round(Number(monthly) * 100);
-    if (!Number.isFinite(monthlyCents)) return res.status(400).json({ error: 'A monthly amount is required' });
+    // Through money.js rather than Number(x) * 100, so a third decimal place is
+    // refused rather than silently rounded into a different amount.
+    let monthlyCents;
+    try {
+      monthlyCents = numericToCents(String(monthly));
+    } catch {
+      return res.status(400).json({ error: 'A monthly amount is required, as dollars with at most two decimal places' });
+    }
     res.json(await tradeOff({
       monthlyCents: Math.max(monthlyCents, 0),
       commitmentIds: Array.isArray(commitmentIds) ? commitmentIds : [],

@@ -125,7 +125,14 @@ forecastRouter.post('/commitments', async (req, res, next) => {
     const { label, typical_amount: amount, cadence_days: cadence, next_due: nextDue, category_id: categoryId } = req.body ?? {};
     if (!label || !String(label).trim()) return res.status(400).json({ error: 'A label is required' });
     if (!Number(amount)) return res.status(400).json({ error: 'A typical amount is required' });
-    if (!Number(cadence)) return res.status(400).json({ error: 'How often it happens, in days, is required' });
+    // Positive, because a cadence is how many days forward to the next one.
+    // Zero or less was accepted and stored: every projection filters on
+    // cadence_days > 0, so the commitment vanished from the forecast while the
+    // page went on listing it as active, and scheduling one directly walks
+    // backwards for as long as a Date lasts.
+    if (!Number.isFinite(Number(cadence)) || Math.round(Number(cadence)) < 1) {
+      return res.status(400).json({ error: 'How often it happens, in days, must be a whole number of days, at least one' });
+    }
 
     // A hand entered commitment uses a key detection will not produce, so the
     // two never fight over the same row.
@@ -154,6 +161,12 @@ forecastRouter.post('/commitments', async (req, res, next) => {
 forecastRouter.post('/commitments/:id', async (req, res, next) => {
   try {
     const { active, typical_amount: amount, cadence_days: cadence, next_due: nextDue, label } = req.body ?? {};
+    // Same rule on edit as on create, or a valid commitment can be turned into
+    // one no projection will ever see.
+    if (cadence !== undefined && cadence !== null
+        && (!Number.isFinite(Number(cadence)) || Math.round(Number(cadence)) < 1)) {
+      return res.status(400).json({ error: 'How often it happens, in days, must be a whole number of days, at least one' });
+    }
     const { rows } = await query(
       `update commitments set
          active         = coalesce($2, active),

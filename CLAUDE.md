@@ -173,11 +173,19 @@ of the letter s". Use POSIX classes like `[[:space:]]` in SQL strings.
 field, and not inside a description: banks put account and BSB numbers in the
 description text itself, so `scrubLabel` replaces runs of four or more digits
 before anything leaves the machine. Every new field added to the snapshot has to
-go through it. The snapshot is stored with each answer so claims can be checked.
+go through it. `accounts.notes` is free text someone typed about an
+account and was the one field that skipped it, with the account's name being
+scrubbed on the line above. The snapshot is stored with each answer so claims can be checked.
 
 **Analysis is off by default and rate limited by cadence.** It costs money per
 run and sends financial data off the machine, so it never turns itself on, and
 a twice daily sync must not mean twice daily analysis.
+
+**A cadence has to step forward.** Zero or less walks
+`scheduleCommitments` backwards instead of ending it, and every projection
+filters on `cadence_days > 0`, so such a row is invisible to the forecast while
+the page goes on listing it as active. Refused at the API on create and on
+edit, and refused again where a cadence becomes dates.
 
 **Accepted expense proposals become ordinary manual commitments.** There is no
 separate "planned expense" concept to keep in step with the forecast.
@@ -317,6 +325,31 @@ because three payments to a builder in one afternoon is one event and counting
 rows made it a recurring habit. The Forecast page applies the same three date
 gate to each merchant in its recurring essentials baseline. Costs below the
 gate are named as irregular rather than silently turned into a monthly rate.
+
+**A rate divides by the days there is history for, and there is one definition
+of that.** `coveredDays` in `src/costs.js` is it, and `effectiveWindowDays`
+reads it from the database for callers that do not want a whole cost model.
+Dividing by the days asked for instead was the Spending page's bug for as long
+as it existed: on 75 days of history read through a 120 day window it reported
+4,007 a month where Today and the Forecast reported 7,873, and the figure kept
+falling as the window grew. Every new install is younger than the window for
+its first four months, so this is not an edge case. It also applies to the
+merchant list, `trimmableSpend` and `scripts/reconcile.js`.
+
+**A window on a date needs both ends.** `txn_date > current_date - $1` with no
+`txn_date <= current_date` lets a future dated row into a total the rate then
+divides as though it had not happened. Reconcile's seventh check exists to
+catch exactly that divergence, so a query that only bounds one end will be
+caught, eventually, by a check that cannot say which query did it.
+
+**How long a debt has been serviced is not how long the window has seen it.**
+`debts()` bounds its denominator by the first payment ever on that account, and
+applies the window with a filter rather than in the where clause. Taking the
+first payment from inside the window means the denominator starts about one
+cadence after the window opens: the mortgage was divided by 106 days instead of
+120 and reported at 2,814 a month against a real 2,450, and the debts card
+stopped adding up to the "paying down debt" figure directly above it, which is
+the one thing the comment in that query promises.
 
 **Do not amortise annual bills into the spend rate. This was tried and
 measured.** Rating a bill over its own period instead of the window is
