@@ -13,9 +13,6 @@ import { daysAgo, addDays, today } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
-  await pool.query(
-    'truncate alert_log, commitments, expected_income, assets, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade',
-  );
   await pool.query('update alert_settings set enabled = false, email_to = null');
   return pool;
 });
@@ -137,7 +134,7 @@ test('detection leaves a hand entered commitment alone', async () => {
   const account = await makeAccount(pool);
   await pool.query(
     `insert into commitments (match_key, label, typical_amount, cadence_days, next_due, source, regularity)
-     values ('manual:school fees', 'School fees', -450.00, 90, current_date + 10, 'manual', 1)`,
+     values ('SCHOOL FEES', 'School fees', -450.00, 90, current_date + 10, 'manual', 1)`,
   );
   for (let i = 0; i < 5; i++) {
     await addTxn(pool, account.id, { date: daysAgo(i * 30), cents: -5000, description: 'SOMETHING REGULAR' });
@@ -835,4 +832,64 @@ test('a commitment that steps backwards is refused rather than scheduled', async
     ),
     [],
   );
+});
+
+test('the cadence is how often something happens, not the gap that happens most', async () => {
+  // The rate divides by the cadence, so the cadence has to answer "how often",
+  // and that is the mean. Gaps are right skewed, nothing can be early by more
+  // than the gap and anything can be late, so the median sits below the mean
+  // and everything irregular projected high. A fuel stop with these gaps read
+  // 446 a month against 237 actually spent.
+  const dates = ['2026-01-04', '2026-01-11', '2026-01-18', '2026-02-08',
+    '2026-02-15', '2026-03-01', '2026-03-08', '2026-03-15', '2026-04-05'];
+  const schedule = assessSchedule(dates);
+  // Median gap is 7. The nine charges actually span 91 days over 8 gaps.
+  assert.equal(schedule.cadence_days, 11);
+  assert.equal(schedule.next_due, '2026-04-16');
+
+  // A bill that really is monthly is unchanged, because for anything regular
+  // the two statistics agree.
+  const monthly = assessSchedule(['2026-01-08', '2026-02-08', '2026-03-08', '2026-04-08', '2026-05-08']);
+  assert.equal(monthly.cadence_days, 30);
+  assert.equal(monthly.regularity, 1);
+
+  // Still a gate, not a rate: clustered charges either side of a long silence
+  // must not project as something annual.
+  assert.equal(assessSchedule(['2026-01-01', '2026-01-02', '2026-01-03']), null);
+});
+
+test('a hand entered commitment leaves its own spending out of the everyday rate', async () => {
+  // It used to be keyed "manual:<label>" so it could never collide with a
+  // detected one. costs.js subtracts a commitment's spending by looking up
+  // matchKeyFor(description), which cannot produce a key in that namespace, so
+  // a manual commitment for a merchant with real history was projected AND left
+  // in the rate. CLAUDE.md's own worked example, entering Suncorp by hand after
+  // standing Youi down, has three payments behind it and hit exactly this.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 500000);
+  await setPayCycle('monthly', daysAgo(400), '0', pool);
+  await ensurePayPeriods({ pool });
+  for (let i = 0; i < 8; i++) {
+    await addTxn(pool, account.id, { date: daysAgo(i * 14), cents: -6000, description: 'SUNCORP INSURANCE' });
+  }
+  await classifyTestSpendingAsEssential(pool);
+
+  const before = await everydaySpendRate(120, pool);
+  await pool.query(
+    `insert into commitments (match_key, label, typical_amount, cadence_days, next_due, source, regularity)
+     values ($1, 'SUNCORP INSURANCE', -60.00, 14, current_date + 7, 'manual', 1)`,
+    [matchKeyFor('SUNCORP INSURANCE')],
+  );
+  const after = await everydaySpendRate(120, pool);
+
+  // The 480 dollars of Suncorp charges move out of everyday and into committed.
+  assert.equal(numericToCents(before.committed), 0);
+  assert.equal(numericToCents(after.committed), 48000);
+  assert.equal(
+    numericToCents(before.everyday) - numericToCents(after.everyday), 48000,
+    'the everyday rate has to shed exactly what the commitment took on',
+  );
+  // And the total is untouched, because nothing about the spending changed.
+  assert.equal(before.total, after.total);
 });

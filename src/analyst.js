@@ -16,6 +16,7 @@ import { forecast, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { today, daysFromNow } from './dates.js';
 import { getPayCycle, currentPeriod, periodState } from './buckets.js';
 import { effectiveWindowDays } from './costs.js';
+import { matchKeyFor } from './commitments.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
 
@@ -492,6 +493,8 @@ export async function acceptProposal(proposal, client = { query }) {
   if (!Number.isFinite(amount) || amount === 0) throw new Error('That proposal has no usable amount.');
   const cadence = Math.round(Number(proposal.cadence_days));
   if (!Number.isFinite(cadence) || cadence < 1) throw new Error('That proposal has no usable cadence.');
+  const key = matchKeyFor(String(proposal.label ?? ''));
+  if (!key) throw new Error('That proposal has no usable name.');
 
   const { rows } = await client.query(
     `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
@@ -506,7 +509,10 @@ export async function acceptProposal(proposal, client = { query }) {
        updated_at     = now()
      returning *`,
     [
-      `manual:${String(proposal.label).trim().toLowerCase()}`,
+      // The key detection would produce, so that if this cost does start
+      // appearing on the statement its charges leave the everyday rate instead
+      // of being counted a second time alongside the commitment.
+      key,
       String(proposal.label).trim(),
       amount.toFixed(2),
       cadence,

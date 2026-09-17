@@ -23,10 +23,14 @@
 import { query } from './db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { matchKeyFor } from './commitments.js';
-import { numericToCents, centsToNumeric } from './money.js';
+import { numericToCents, centsToNumeric, centsPerMonth, monthlyFromDaily, dailyFromMonthly } from './money.js';
 import { today as householdToday } from './dates.js';
 
 const DAY_MS = 86_400_000;
+// Only priceIn uses this, and it uses it as a real number on purpose: the
+// runway formula below divides by the difference between two daily rates, and
+// rounding either to whole cents first moves the answer by days. Every other
+// conversion between a rate and a period goes through money.js.
 const MONTH_DAYS = 30.44;
 
 const toCents = (value) => numericToCents(value ?? 0);
@@ -109,27 +113,37 @@ export async function position({
   });
   const rate = view.everyday_rate;
 
-  const everydayMonthly = Math.round(
-    (view.projected_everyday_rate.per_day_cents * 3044) / 100,
-  );
+  const everydayMonthly = monthlyFromDaily(view.projected_everyday_rate.per_day_cents);
   const committedMonthly = costs.commitments
     .reduce((total, row) => total + row.per_month_cents, 0);
   const outMonthly = everydayMonthly + committedMonthly;
 
   // Income the same way the projection sees it, so the gap on this page and
   // the curve on the forecast page cannot disagree.
+  // A monthly cycle is already monthly, so it is not divided by anything.
   const cycleMonthly = view.cycle
-    ? Math.round((toCents(view.expected_income.amount) * MONTH_DAYS) /
-        (view.cycle.cadence === 'monthly' ? MONTH_DAYS : view.cycle.cadence === 'fortnightly' ? 14 : 7))
+    ? (view.cycle.cadence === 'monthly'
+        ? toCents(view.expected_income.amount)
+        : centsPerMonth(toCents(view.expected_income.amount), view.cycle.cadence === 'fortnightly' ? 14 : 7))
     : 0;
   const streamsMonthly = (view.expected_income_streams ?? [])
     // A stream with an end date is temporary, including a one-time partial
     // first pay. It belongs on the cash curve, not in the ongoing monthly
     // income figure used to decide whether the household is going backwards.
     .filter((stream) => stream.confidence !== 'possible' && !stream.ends_on)
-    .reduce((total, stream) => total + Math.round((toCents(stream.amount) * MONTH_DAYS) / Number(stream.cadence_days || 30)), 0);
+    .reduce((total, stream) => total + centsPerMonth(toCents(stream.amount), Number(stream.cadence_days) || 30), 0);
   const inMonthly = cycleMonthly + streamsMonthly;
 
+  // A share of outMonthly, not a second measurement of what goes out.
+  //
+  // It reads like one, so it is worth saying why it is not. outMonthly is
+  // everydayMonthly plus committedMonthly, and both halves of this sum are
+  // subsets of those: the debt commitments are part of committedMonthly, and a
+  // debt row that is variable and recurring carries to_own_debt, which forces
+  // tier 'keep', which puts it in recurring essentials, which is what
+  // everydayMonthly is built from. So this adds up parts of one total rather
+  // than measuring the same thing twice, and living_per_month below is the
+  // remainder. The clamp is only there because the two halves round separately.
   const debtMonthly = Math.min(
     costs.commitments
       .filter((row) => row.is_debt)
@@ -141,7 +155,7 @@ export async function position({
   );
 
   const gapMonthly = outMonthly - inMonthly;
-  const dailyGapCents = Math.max(Math.round(gapMonthly / MONTH_DAYS), 0);
+  const dailyGapCents = Math.max(dailyFromMonthly(gapMonthly), 0);
 
   return {
     as_of: householdToday(),
@@ -151,7 +165,7 @@ export async function position({
     out_per_month: fromCents(outMonthly),
     everyday_per_month: fromCents(everydayMonthly),
     recurring_essential_per_month: fromCents(
-      Math.round((rate.recurring_essential_per_day_cents * 3044) / 100),
+      monthlyFromDaily(rate.recurring_essential_per_day_cents),
     ),
     discretionary_per_month: fromCents(costs.discretionary_allowance_cents),
     // What optional day to day spending has actually been running at, which the
@@ -288,8 +302,8 @@ export async function didItStick({ since, client = { query }, before = 180 } = {
   const rows = await discretionary({ since, before, client, by: 'group' });
 
   const lines = rows.map((row) => {
-    const beforeMonthly = Math.round((row.beforeCents * MONTH_DAYS) / before);
-    const afterMonthly = Math.round((row.afterCents * MONTH_DAYS) / afterDays);
+    const beforeMonthly = centsPerMonth(row.beforeCents, before);
+    const afterMonthly = centsPerMonth(row.afterCents, afterDays);
     return {
       group: row.key,
       before_per_month: fromCents(beforeMonthly),
@@ -326,8 +340,8 @@ export async function movers({ since, before = 180, client = { query }, limit = 
   const rows = await discretionary({ since, before, client, by: 'place' });
 
   const scored = rows.map((row) => {
-    const beforeMonthly = Math.round((row.beforeCents * MONTH_DAYS) / before);
-    const afterMonthly = Math.round((row.afterCents * MONTH_DAYS) / afterDays);
+    const beforeMonthly = centsPerMonth(row.beforeCents, before);
+    const afterMonthly = centsPerMonth(row.afterCents, afterDays);
     return {
       place: row.label,
       merchant_key: row.key,
@@ -377,7 +391,7 @@ export async function tradeOff({
     window,
     client,
     forecastContext: context,
-    spendAdjustmentCentsPerDay: Math.round(monthlyCents / MONTH_DAYS),
+    spendAdjustmentCentsPerDay: dailyFromMonthly(monthlyCents),
     excludeCommitmentIds: commitmentIds,
   });
 

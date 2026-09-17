@@ -6,14 +6,13 @@
 // database work once and returns a model the projection and every presentation
 // can share.
 import { query } from './db.js';
-import { numericToCents, centsToNumeric } from './money.js';
+import { numericToCents, centsToNumeric, centsPerMonth } from './money.js';
 import { today as householdToday } from './dates.js';
 import { matchKeyFor } from './commitments.js';
 
 const DAY_MS = 86_400_000;
 const toCents = (value) => numericToCents(value ?? 0);
 const fromCents = centsToNumeric;
-const perMonth = (cents, days) => Math.round((cents * 3044) / (days * 100));
 
 function allowanceFrom(value) {
   try {
@@ -249,7 +248,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
 
   const variable = [...grouped.values()]
     .map((row) => {
-      const monthlyCents = perMonth(row.cents, effectiveDays);
+      const monthlyCents = centsPerMonth(row.cents, effectiveDays);
       return {
         ...row,
         per_month_cents: monthlyCents,
@@ -264,9 +263,13 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     discretionary_allowance_cents: allowanceFrom(context.allowance),
     rate,
     commitments,
+    // The ones a scenario is allowed to turn off. Three pages were each
+    // filtering on the tier themselves, which is three places to disagree about
+    // what "optional" means. This module owns classification, so it owns this.
+    optional_commitments: commitments.filter((row) => row.tier === 'cut'),
     variable,
     debt_keys: debtKeys,
-    historical_discretionary_per_month_cents: perMonth(
+    historical_discretionary_per_month_cents: centsPerMonth(
       discretionaryCents,
       effectiveDays,
     ),

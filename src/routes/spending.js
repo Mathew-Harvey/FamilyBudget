@@ -24,54 +24,25 @@ spendingRouter.get('/', async (req, res, next) => {
     // differ, and this page read a third low against every other page.
     const over = await effectiveWindowDays(days);
 
-    const { rows: categories } = await query(
-      `select coalesce(grp.name, 'Uncategorised') as group_name,
-              coalesce(grp.sort_order, 999)       as group_order,
-              cat.name                            as category,
-              cat.id                              as category_id,
-              count(*)::int                       as transactions,
-              sum(-t.amount)                      as spent,
-              round(sum(-t.amount) * 30.44 / $2, 2) as per_month
-         from budget_flows t
-         left join categories cat on cat.id = t.category_id
-         left join categories grp on grp.id = cat.parent_id
-        where t.counts and t.amount < 0
-          and (cat.kind is null or cat.kind = 'expense')
-          and t.txn_date > current_date - $1::integer
-          and t.txn_date <= current_date
-        group by grp.name, grp.sort_order, cat.name, cat.id
-        order by group_order, sum(-t.amount) desc`,
-      [days, over],
-    );
-
-    const { rows: totals } = await query(
-      `select coalesce(sum(-t.amount), 0) as spent,
+    // One query for all three levels.
+    //
+    // This was three, identical but for the group by, and the where clause was
+    // written out three times. That is how the missing txn_date <= current_date
+    // got in: it was added to one copy and not the others. Grouping sets asks
+    // Postgres for the category rows, the group subtotals and the grand total in
+    // a single pass, so there is one filter and the arithmetic stays numeric.
+    // grouping() says which level a row came from, since a null group name means
+    // "uncategorised" on a category row and "every group" on the total.
+    const { rows } = await query(
+      `select coalesce(grp.name, 'Uncategorised')   as group_name,
+              coalesce(grp.sort_order, 999)         as group_order,
+              cat.name                              as category,
+              cat.id                                as category_id,
+              count(*)::int                         as transactions,
+              coalesce(sum(-t.amount), 0)           as spent,
               round(coalesce(sum(-t.amount), 0) * 30.44 / $2, 2) as per_month,
-              count(*)::int as transactions
-         from budget_flows t
-         left join categories cat on cat.id = t.category_id
-        where t.counts and t.amount < 0
-          and (cat.kind is null or cat.kind = 'expense')
-          and t.txn_date > current_date - $1::integer
-          and t.txn_date <= current_date`,
-      [days, over],
-    );
-
-    // Grouped for the page, so it does not have to do the nesting itself.
-    const groups = [];
-    for (const row of categories) {
-      let group = groups.find((g) => g.name === row.group_name);
-      if (!group) {
-        group = { name: row.group_name, spent: '0', per_month: '0', categories: [] };
-        groups.push(group);
-      }
-      group.categories.push(row);
-    }
-    // Group totals summed in SQL, so the arithmetic stays numeric.
-    const { rows: groupTotals } = await query(
-      `select coalesce(grp.name, 'Uncategorised') as group_name,
-              sum(-t.amount) as spent,
-              round(sum(-t.amount) * 30.44 / $2, 2) as per_month
+              grouping(cat.id)   as is_subtotal,
+              grouping(grp.name) as is_total
          from budget_flows t
          left join categories cat on cat.id = t.category_id
          left join categories grp on grp.id = cat.parent_id
@@ -79,18 +50,42 @@ spendingRouter.get('/', async (req, res, next) => {
           and (cat.kind is null or cat.kind = 'expense')
           and t.txn_date > current_date - $1::integer
           and t.txn_date <= current_date
-        group by grp.name`,
+        group by grouping sets (
+          (grp.name, grp.sort_order, cat.name, cat.id),
+          (grp.name, grp.sort_order),
+          ()
+        )
+        order by 2, coalesce(sum(-t.amount), 0) desc`,
       [days, over],
     );
-    for (const group of groups) {
-      const total = groupTotals.find((g) => g.group_name === group.name);
-      if (total) {
-        group.spent = total.spent;
-        group.per_month = total.per_month;
-      }
-    }
 
-    res.json({ window_days: days, days_of_history: over, total: totals[0], groups });
+    const total = rows.find((row) => row.is_total === 1)
+      ?? { spent: '0', per_month: '0.00', transactions: 0 };
+    // Nested by name rather than by row order, so the shape does not depend on
+    // how Postgres happened to interleave the levels.
+    const byName = new Map();
+    for (const { is_subtotal: isSubtotal, is_total: isTotal, ...row } of rows) {
+      if (isTotal === 1) continue;
+      const group = byName.get(row.group_name)
+        ?? { name: row.group_name, order: row.group_order, spent: '0', per_month: '0', categories: [] };
+      if (isSubtotal === 1) {
+        group.spent = row.spent;
+        group.per_month = row.per_month;
+      } else {
+        group.categories.push(row);
+      }
+      byName.set(row.group_name, group);
+    }
+    const groups = [...byName.values()]
+      .sort((a, b) => a.order - b.order)
+      .map(({ order, ...group }) => group);
+
+    res.json({
+      window_days: days,
+      days_of_history: over,
+      total: { spent: total.spent, per_month: total.per_month, transactions: total.transactions },
+      groups,
+    });
   } catch (err) {
     next(err);
   }

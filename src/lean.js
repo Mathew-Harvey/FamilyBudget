@@ -22,10 +22,9 @@
 //   instead of 2.
 import { query } from './db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
-import { numericToCents, centsToNumeric } from './money.js';
+import { numericToCents, centsToNumeric, dailyFromMonthly } from './money.js';
 import { friendlyDate, position } from './behaviour.js';
 
-const MONTH_DAYS = 30.44;
 const toCents = (value) => numericToCents(value ?? 0);
 const fromCents = centsToNumeric;
 
@@ -51,7 +50,7 @@ export async function leanPlan({
   const { commitments, variable, debt_keys: debtKeys } = costs;
   const base = await forecast({ days: 400, window, client, forecastContext: context });
 
-  const cutCommitments = commitments.filter((row) => row.tier === 'cut');
+  const cutCommitments = costs.optional_commitments;
   const trimVariable = variable.filter(
     (row) => row.tier === 'trim' && row.recurring && !row.is_debt,
   );
@@ -96,7 +95,7 @@ export async function leanPlan({
       removesMore: Math.max(trimVariable.length - 8, 0),
       commitmentIds: optionalIds,
       allowanceCents: 0,
-      spendAdjustmentCentsPerDay: Math.round(trimSavingCents / MONTH_DAYS),
+      spendAdjustmentCentsPerDay: dailyFromMonthly(trimSavingCents),
       savesCents: optionalSavingCents + trimSavingCents,
     });
   }

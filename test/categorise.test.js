@@ -8,7 +8,6 @@ import { centsToNumeric } from '../src/money.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
-  await pool.query('truncate merchants, rules, provider_category_map, categories cascade');
   return pool;
 });
 after(closeTestPool);

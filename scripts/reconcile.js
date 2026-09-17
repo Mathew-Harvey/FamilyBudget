@@ -171,7 +171,48 @@ check('every query that sums money in filters on the income kind',
   unguarded.length === 0,
   unguarded.length ? `unguarded: ${unguarded.join(', ')}` : 'checked across the modules that sum it');
 
-// 7. The two pages measure the same window the same way.
+// 7. No commitment is counted twice.
+//
+// costs.js keeps a commitment's spending out of the everyday rate by looking up
+// matchKeyFor(description). A commitment whose key that function could never
+// produce is therefore projected AND left in the rate, which is what the old
+// "manual:<label>" namespace did: a cafe costing 122 a month was carried at
+// 296. Checked against the one definition rather than against that prefix, so a
+// future second namespace is caught the same way. Grouped in JavaScript, never
+// by writing matchKeyFor again in SQL.
+console.log('\nNothing is counted twice');
+const { rows: active } = await query('select id, label, match_key from commitments where active');
+const { rows: spendRows } = await query(
+  `select coalesce(display_description, description) as label, -amount as amt
+     from budget_flows where counts and amount < 0 and not one_off and not no_longer_expected
+       and txn_date > current_date - $1::integer and txn_date <= current_date`, [WINDOW]);
+const spendByKey = new Map();
+for (const row of spendRows) {
+  const key = matchKeyFor(row.label);
+  spendByKey.set(key, (spendByKey.get(key) ?? 0) + Number(row.amt));
+}
+// A commitment is keyed by what its own label reduces to. Anything else is
+// wrong in one of two ways, and both are a double count: either nothing
+// subtracts its spending from the everyday rate, or the commitment that does
+// hold the right key is the same cost listed a second time.
+const heldKeys = new Set(active.map((row) => row.match_key));
+const wrongKey = active.filter((row) => matchKeyFor(String(row.label)) !== row.match_key);
+const detail = wrongKey.map((row) => {
+  const real = matchKeyFor(String(row.label));
+  if (!real) return `${row.label} (its name has nothing to match on)`;
+  if (heldKeys.has(real)) return `${row.label} (a duplicate of the commitment already holding ${real})`;
+  const perMonth = (spendByKey.get(real) ?? 0) * 30.44 / WINDOW;
+  return perMonth > 0.005
+    ? `${row.label} (${money(perMonth)} a month of its spending is in the everyday rate as well)`
+    : `${row.label} (nothing charged to it yet)`;
+});
+check('every commitment is keyed by what its own label reduces to',
+  wrongKey.length === 0,
+  wrongKey.length
+    ? `${wrongKey.length} are not: ${detail.join(', ')}. Run node scripts/rekey-commitments.js`
+    : `${active.length} active, all reachable`);
+
+// 8. The two pages measure the same window the same way.
 console.log('\nThe pages agree');
 const { rows: [windows] } = await query(`
   select round(sum(-amount) filter (where txn_date > current_date - $1::integer), 2) as spending_page,

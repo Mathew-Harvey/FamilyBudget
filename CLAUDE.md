@@ -76,6 +76,15 @@ registers type parsers so numeric arrives as a string and date arrives as
 `YYYY-MM-DD`: do not remove them, a date parsed into a JavaScript Date in the
 server's local timezone can move a transaction a day.
 
+**Converting between a rate and a period goes through money.js.**
+`centsPerMonth`, `monthlyFromDaily` and `dailyFromMonthly` are the only three,
+and they keep the arithmetic in integers until the single division.
+They were written by hand in a dozen places, as `* 30.44 / days` in some and
+`* 3044 / (days * 100)` in others, with a private `MONTH_DAYS` float in two
+modules. Only `priceIn` still holds one, deliberately: it divides by the
+difference between two daily rates and rounding either to whole cents first
+moves the answer by days. SQL keeps its own `* 30.44`, where numeric is exact.
+
 **forecast.js, commitments.js and analyst.js use money.js too.** An earlier version
 of the forecast had its own Math.round(Number(x) * 100), which is float arithmetic
 on money. Amounts reach the forecast as 2dp strings or integer cents; a float is
@@ -118,6 +127,12 @@ never send it to the browser, never write it to a file.
 numbers and names, ids and institutions are replaced, and every date is shifted
 by one constant. Structure, field names, id formats, sign conventions and pending
 flags are preserved exactly.
+
+**One list of what a test may write to.** `resetDatabase` in `test/helpers.js`
+truncates every domain table, and no test file keeps its own copy. Six of them
+did, and the copies had drifted: `forecast.test.js` was missing `settings`, so
+inserting the discretionary allowance collided with the row migration 027 seeds
+and that file could not be run on its own.
 
 **Tests must never touch the live database.** `test/helpers.js` refuses to run
 without a `TEST_DATABASE_URL` that differs from `DATABASE_URL`, then repoints
@@ -325,6 +340,34 @@ because three payments to a builder in one afternoon is one event and counting
 rows made it a recurring habit. The Forecast page applies the same three date
 gate to each merchant in its recurring essentials baseline. Costs below the
 gate are named as irregular rather than silently turned into a monthly rate.
+
+**A cadence is how often something happens, not the gap that happens most.**
+`assessSchedule` uses the median gap to decide whether something recurs at all,
+because one long gap over a holiday must not turn a monthly bill into a six
+weekly one, and the mean of the gaps for the cadence itself, because the cadence
+is the denominator of `amount * 30.44 / cadence`. Gaps are right skewed, nothing
+can be early by more than the gap and anything can be late, so the median sits
+below the mean and every commitment that was not perfectly regular projected
+high. A fuel stop with gaps of 7, 7, 21, 7, 14 was carried at 446 a month
+against 237 actually spent. Measured the way `scripts/backtest.js` measures the
+spend window, over 240 predictions, that change cut the per commitment error
+from 114 dollars to 40, and moved the genuinely regular ones by under two
+percent, because for anything regular the two statistics agree.
+
+**A commitment is keyed by what its own label reduces to, and by nothing else.**
+Hand entered commitments used to be keyed `manual:<label>` so that they and a
+detected one could never collide. That is backwards. `costs.js` keeps a
+commitment's spending out of the everyday rate by looking up
+`matchKeyFor(description)`, which cannot produce a key in that namespace, so
+every manual commitment for a merchant with real history was projected AND left
+in the rate: a cafe costing 122 a month was carried at 296. Standing Youi down
+and entering Suncorp by hand, the worked example above, has three payments of
+history behind it and hit exactly this. They should collide, because detection
+only ever updates rows it created, so a hand entered one holding the key wins
+and is left alone. `scripts/rekey-commitments.js` moves old rows across, and
+reconcile fails until they have been moved. A second namespace cannot come back
+without reconcile noticing, because the check compares against `matchKeyFor`
+rather than against the old prefix.
 
 **A rate divides by the days there is history for, and there is one definition
 of that.** `coveredDays` in `src/costs.js` is it, and `effectiveWindowDays`

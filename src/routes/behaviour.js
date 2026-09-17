@@ -64,7 +64,10 @@ behaviourRouter.get('/', async (req, res, next) => {
       since ? didItStick({ since }) : null,
       since ? movers({ since }) : null,
       intentions(),
-      debts(),
+      // The same window as the headline. Left to its own default, the debts
+      // card was built on 120 days while the figure above it used whatever was
+      // asked for, so at ?window=60 the rows did not add up to the total.
+      debts({ window }),
       whatToStop({ window, limit: 40, forecastContext, positionResult: here }),
     ]);
 

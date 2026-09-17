@@ -11,9 +11,6 @@ import { daysAgo, today } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
-  await pool.query(
-    'truncate alert_log, commitments, expected_income, assets, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, intentions, goals, settings, categories cascade',
-  );
   await pool.query('update alert_settings set enabled = false, email_to = null');
   return pool;
 });

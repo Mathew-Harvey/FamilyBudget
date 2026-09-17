@@ -18,7 +18,6 @@ import { daysAgo } from '../src/dates.js';
 
 beforeEach(async () => {
   const pool = await resetDatabase();
-  await pool.query('truncate expected_income, assets, bucket_allocations, bucket_categories, buckets, pay_periods, pay_cycle, rules, provider_category_map, categories cascade');
   return pool;
 });
 after(closeTestPool);

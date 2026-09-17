@@ -67,3 +67,30 @@ export function formatCents(cents) {
   const negative = cents < 0;
   return `${negative ? '-' : ''}$${centsToNumeric(Math.abs(cents))}`;
 }
+
+// Rates. A month is 30.44 days, the mean Gregorian month, and these are the
+// only three conversions this app does between a rate and a period.
+//
+// They were written out by hand in a dozen places, as `* 30.44 / days` in some
+// and `* 3044 / (days * 100)` in others, with a private MONTH_DAYS constant in
+// two modules. The second form is the right one: it keeps the arithmetic in
+// integers until the single division, where the first multiplies cents by a
+// float. One definition, so a rate cannot mean two things depending on which
+// file worked it out.
+const MONTH_DAYS_HUNDREDTHS = 3044;
+
+// An amount that left over some number of days, as a monthly rate.
+export function centsPerMonth(cents, days) {
+  if (!(days > 0)) throw new RangeError('a rate needs a positive number of days to divide by');
+  return Math.round((cents * MONTH_DAYS_HUNDREDTHS) / (days * 100));
+}
+
+// A daily rate as a monthly one.
+export function monthlyFromDaily(centsPerDay) {
+  return Math.round((centsPerDay * MONTH_DAYS_HUNDREDTHS) / 100);
+}
+
+// A monthly rate as a daily one.
+export function dailyFromMonthly(cents) {
+  return Math.round((cents * 100) / MONTH_DAYS_HUNDREDTHS);
+}

@@ -10,7 +10,7 @@
 // Only liquid accounts count. The mortgage is a debt, not a buffer, and its
 // redraw is deliberately ignored: it is money we would have to borrow back.
 import { query } from './db.js';
-import { numericToCents, centsToNumeric, assertCents } from './money.js';
+import { numericToCents, centsToNumeric, assertCents, centsPerMonth, dailyFromMonthly } from './money.js';
 import { today as householdToday, addDays } from './dates.js';
 import { periodsBetween, getPayCycle } from './buckets.js';
 import { scheduleCommitments, medianCents } from './commitments.js';
@@ -261,8 +261,10 @@ export async function forecast({
   // is counted twice, and the runway comes out long by a whole wage.
   if (cycle && income.cents > 0) {
     for (const stream of expected) {
-      const streamMonthly = (toCents(stream.amount) * 30.44) / Number(stream.cadence_days || 30);
-      const cycleMonthly = (income.cents * 30.44) / (cycle.cadence === 'monthly' ? 30.44 : cycle.cadence === 'fortnightly' ? 14 : 7);
+      const streamMonthly = centsPerMonth(toCents(stream.amount), Number(stream.cadence_days) || 30);
+      const cycleMonthly = cycle.cadence === 'monthly'
+        ? income.cents
+        : centsPerMonth(income.cents, cycle.cadence === 'fortnightly' ? 14 : 7);
       if (Math.abs(streamMonthly - cycleMonthly) < cycleMonthly * 0.1) {
         warnings.push({
           kind: 'possible_double_count',
@@ -276,7 +278,7 @@ export async function forecast({
   const allowanceCents = discretionaryCentsPerMonth === undefined
     ? costs.discretionary_allowance_cents
     : Math.max(assertCents(discretionaryCentsPerMonth, 'discretionary allowance'), 0);
-  const allowancePerDayCents = Math.round((allowanceCents * 100) / 3044);
+  const allowancePerDayCents = dailyFromMonthly(allowanceCents);
   const baseEverydayPerDayCents =
     rate.recurring_essential_per_day_cents + allowancePerDayCents;
   const projectedEverydayPerDayCents = Math.max(

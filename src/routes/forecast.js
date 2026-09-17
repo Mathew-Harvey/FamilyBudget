@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
-import { detectCommitments } from '../commitments.js';
+import { detectCommitments, matchKeyFor } from '../commitments.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
 export const forecastRouter = Router();
@@ -27,7 +27,7 @@ forecastRouter.get('/', async (req, res, next) => {
 
     const forecastContext = await buildForecastContext({ window });
     const costs = forecastContext.costs;
-    const optionalCommitments = costs.commitments.filter((row) => row.tier === 'cut');
+    const optionalCommitments = costs.optional_commitments;
     const optionalIds = new Set(optionalCommitments.map((row) => String(row.commitment_id)));
     const requestedExclusions = String(req.query.exclude_commitments || '')
       .split(',')
@@ -134,15 +134,30 @@ forecastRouter.post('/commitments', async (req, res, next) => {
       return res.status(400).json({ error: 'How often it happens, in days, must be a whole number of days, at least one' });
     }
 
-    // A hand entered commitment uses a key detection will not produce, so the
-    // two never fight over the same row.
+    // The same key detection would produce, not a namespace of its own.
+    //
+    // A hand entered commitment used to be keyed "manual:<label>", so that it
+    // and a detected one could never fight over the same row. That is exactly
+    // backwards: costs.js keeps a commitment's spending out of the everyday
+    // rate by looking up matchKeyFor(description), which can never produce a
+    // key in that namespace, so every manual commitment for a merchant with
+    // real history was counted twice. A cafe costing 122 a month was carried at
+    // 296. CLAUDE.md's own worked example, standing Youi down and entering
+    // Suncorp by hand, has three payments of history behind it and hit this.
+    //
+    // They should fight over the same row. Detection only ever updates rows it
+    // created, so a manual one holding the key wins and stays untouched.
+    const key = matchKeyFor(String(label));
+    if (!key) {
+      return res.status(400).json({ error: 'That name has nothing in it to match on. Use the name as it appears on the statement.' });
+    }
     const { rows } = await query(
       `insert into commitments (match_key, label, typical_amount, cadence_days, next_due,
                                 category_id, source, occurrences, regularity)
        values ($1, $2, $3, $4, $5, $6, 'manual', 0, 1)
        returning *`,
       [
-        `manual:${String(label).trim().toLowerCase()}`,
+        key,
         String(label).trim(),
         // Outgoings are negative everywhere in this app.
         -Math.abs(Number(amount)),

@@ -33,7 +33,8 @@ JSON API, so alerts add no package at all.
 
 ```
 migrations/  numbered .sql files, applied in order by scripts/migrate.js
-scripts/     migrate.js, discover.js, create-user.js
+scripts/     migrate.js, discover.js, create-user.js, reconcile.js,
+             backtest.js, rekey-commitments.js
 src/         db.js         one shared pg pool, SSL and type parsers
              redbark.js    every Redbark API call, isolated here
              sync.js       the sync engine, npm run sync
@@ -260,6 +261,13 @@ bucket and the buckets sum to the raw total, that money moved between your own
 accounts nets to zero, that refunds cancel their charges exactly, and that the
 headline agrees with what actually left the account. If something about the
 deployment is wrong, it says which figure and by how much.
+
+If it reports that a commitment is not keyed by what its own label reduces to,
+run `node scripts/rekey-commitments.js` to see what it would change and
+`node scripts/rekey-commitments.js --apply` to do it. Hand entered commitments
+used to live in a key namespace of their own, which meant their spending was
+projected and also left in the everyday rate, so those rows were counted twice.
+The script moves them across and names anything that collides.
 
 ### The order it has to happen in
 

@@ -39,10 +39,26 @@ export async function getTestPool() {
   return pool;
 }
 
+// Everything a test can write to, in one list.
+//
+// Six files kept their own copy of this and they had drifted: forecast.test.js
+// was missing settings, so inserting the discretionary allowance collided with
+// the row migration 027 seeds and the file could not be run on its own. One
+// list, for the same reason there is one matchKeyFor.
+const DOMAIN_TABLES = [
+  'analyses', 'alert_log', 'intentions', 'goals', 'settings',
+  'commitments', 'expected_income', 'assets',
+  'bucket_allocations', 'bucket_categories', 'buckets',
+  'pay_periods', 'pay_cycle',
+  'rules', 'provider_category_map', 'merchants', 'categories',
+  'transfer_rejections', 'balances', 'transactions', 'accounts',
+  'sync_runs', 'users',
+];
+
 export async function resetDatabase() {
   const p = await getTestPool();
   // Order matters only for readability, cascade does the work.
-  await p.query('truncate transfer_rejections, balances, transactions, accounts, sync_runs, users cascade');
+  await p.query(`truncate ${DOMAIN_TABLES.join(', ')} cascade`);
   return p;
 }
 
