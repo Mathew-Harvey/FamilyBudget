@@ -3,7 +3,7 @@
 // page exists at all when the Forecast page already has the numbers.
 import { Router } from 'express';
 import { query } from '../db.js';
-import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts, thisPeriod, cashCurve } from '../behaviour.js';
+import { position, didItStick, movers, tradeOff, whatToStop, intentions, debts, thisPeriod, cashCurve, payPeriods } from '../behaviour.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { numericToCents } from '../money.js';
 
@@ -85,6 +85,10 @@ behaviourRouter.get('/', async (req, res, next) => {
         label: row.label, amount: row.amount, starts_on: row.starts_on,
       })),
       curve: cashCurve(projection),
+      // The next few pay periods, cut from the same projection as the curve.
+      // The first is the stub from today to payday, which the fortnight card
+      // already covers, so the page starts from the one after it.
+      periods: payPeriods(projection).slice(0, 7),
       change_point: point,
       stuck,
       movers: moved,

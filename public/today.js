@@ -23,7 +23,7 @@
 //                                worth nothing, which makes honesty the
 //                                self interested choice as well as the right
 //                                one.
-import { api, el, formatAmount, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, formatDay, renderNav, showError } from '/app.js';
 import { cashChart } from '/chart.js';
 
 renderNav('/today');
@@ -198,7 +198,7 @@ function headline(position, curve, expecting = []) {
 // deliberately not the subject: a household with 22,000 in the bank is not
 // living on it for four days, and the flow through the period means the same
 // thing at any balance.
-function fortnight(period) {
+function fortnight(period, periods) {
   const box = document.getElementById('fortnight');
   box.innerHTML = '';
   if (!period || !period.days_total) return;
@@ -256,6 +256,74 @@ function fortnight(period) {
           : '.') }),
     ]),
   );
+
+  // The ones after it, folded. The first period the projection cuts is the
+  // stub from today to payday, which the card above already measures, so the
+  // list starts from the next whole one. This lived on the Forecast page;
+  // it is the same question as the card, extended, and belongs under it.
+  const coming = (periods ?? []).slice(1);
+  if (!coming.length) return;
+  box.append(el('details', { class: 'card', style: 'margin-top:12px' }, [
+    el('summary', { text: `The next ${coming.length} ${period.unit}${coming.length === 1 ? '' : 's'}` }),
+    el('p', { class: 'muted small', style: 'margin:12px 0 10px', text:
+      'What each lot of pay has to cover, on the household plan. Everyday spending '
+      + 'is the projected rate, not a bill anyone has sent.' }),
+    el('div', { class: 'card flush' }, coming.map(periodRow)),
+  ]));
+}
+
+// One pay period, with the bills inside it a click away. Ported from the
+// Forecast page unchanged: the bar is what survives the period, not what
+// leaves it, and a period with no pay in it gets no bar at all.
+function periodRow(period) {
+  const income = Number(period.income);
+  const left = Number(period.left_over);
+  const share = income > 0 ? Math.max(Math.min(left / income, 1), 0) : 0;
+
+  const rows = period.events.map((event) => el('div', { class: 'item' }, [
+    el('span', { class: 'grow' }, [
+      el('span', { class: 't truncate', text: event.label }),
+      el('span', { class: 's', text: formatDay(event.date) }),
+    ]),
+    el('span', { class: `amount ${event.amount_cents > 0 ? 'in' : 'out'}`, text: money(event.amount) }),
+  ]));
+  rows.push(el('div', { class: 'item' }, [
+    el('span', { class: 'grow' }, [
+      el('span', { class: 't', text: 'Everyday spending' }),
+      el('span', { class: 's', text: 'groceries, fuel and the allowance, at the projected rate' }),
+    ]),
+    el('span', { class: 'amount out', text: money(`-${period.everyday}`) }),
+  ]));
+  const detail = el('div', { class: 'inside', style: 'display:none' }, rows);
+
+  const line = el('div', { class: 'item', style: 'cursor:pointer' }, [
+    el('span', { class: 'grow' }, [
+      el('span', { class: 't' }, [
+        el('span', { text: `${formatDay(period.starts)} to ${formatDay(period.ends)}` }),
+        period.partial
+          ? el('span', { class: 'note', style: 'margin-left:8px', text: 'part of a period' })
+          : null,
+      ]),
+      el('span', { class: 's', text: income > 0
+        ? `${money(period.income)} in, ${money(period.out)} out`
+        : `${money(period.out)} out, no pay lands in this stretch` }),
+      income > 0
+        ? el('div', { class: 'track' }, [
+            el('i', { style: left < 0
+              ? 'width:100%;background:var(--out)'
+              : `width:${(share * 100).toFixed(1)}%;background:var(--in)` }),
+          ])
+        : null,
+    ]),
+    el('span', { style: 'text-align:right' }, [
+      el('span', { class: `amount ${left < 0 ? 'out' : 'in'}`, text: money(period.left_over) }),
+      el('span', { class: 's', text: `${money(period.closing)} left` }),
+    ]),
+  ]);
+  line.addEventListener('click', () => {
+    detail.style.display = detail.style.display === 'none' ? '' : 'none';
+  });
+  return el('div', {}, [line, detail]);
 }
 
 // Did the last decision hold?
@@ -425,7 +493,7 @@ async function load() {
   try {
     const data = await api('/api/today');
     headline(data.position, data.curve, data.expecting);
-    fortnight(data.period);
+    fortnight(data.period, data.periods);
     stuck(data.stuck, data.change_point);
     moversSection(data.movers);
     debtsSection(data.debts);

@@ -4,9 +4,7 @@ import { query } from '../db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments, matchKeyFor } from '../commitments.js';
 import { optionalByMonth, buildCostModel } from '../costs.js';
-import { position } from '../behaviour.js';
-import { periodsBetween } from '../buckets.js';
-import { addDays } from '../dates.js';
+import { position, payPeriods } from '../behaviour.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
 // How far the household question is answered over, regardless of how far the
@@ -15,82 +13,6 @@ import { numericToCents, centsToNumeric } from '../money.js';
 const HOUSEHOLD_DAYS = 400;
 
 export const forecastRouter = Router();
-
-// What is coming up, cut into the periods the household actually lives in.
-//
-// Thirty two rows down a page, with the fuel stop six times and the pay five,
-// is a calendar nobody reads. The pay lands every fortnight and has to cover
-// what happens before the next lot, which is the same unit the Today page
-// measures, so the bills are grouped between paydays.
-//
-// What goes out is taken from the balance either side rather than by adding the
-// events up: everyday spending is applied as a daily rate and is not an event
-// at all, so a sum of events would be short by most of the groceries. Doing it
-// this way also means the rows cannot fail to add up to the curve above them,
-// which is the arithmetic the plan card got wrong.
-function payPeriods(projection) {
-  const series = projection.series ?? [];
-  if (series.length < 2) return [];
-
-  const balances = new Map(series.map((point) => [point.date, point.balance_cents]));
-  const first = series[0].date;
-  const last = series.at(-1).date;
-  const paydays = projection.paydays ?? [];
-  const starts = [first, ...paydays.filter((date) => date > first && date <= last)];
-
-  // One payday past the end of the window, so the last group can say whether it
-  // is a whole period or one the look ahead cut in half. Without it a fortnight
-  // that happens to end on the last day drawn is labelled partial, which reads
-  // as a warning about nothing.
-  const beyond = projection.cycle
-    ? periodsBetween(projection.cycle.cadence, projection.cycle.anchor_date, last, addDays(last, 40))
-      .map((period) => period.starts_on)
-      .find((date) => date > last)
-    : null;
-
-  return starts.map((start, index) => {
-    const next = starts[index + 1];
-    const end = next
-      ? series[series.findIndex((point) => point.date === next) - 1]?.date ?? start
-      : last;
-    const opening = index === 0
-      ? numericToCents(projection.opening_balance)
-      : balances.get(series[series.findIndex((point) => point.date === start) - 1]?.date) ?? 0;
-    const closing = balances.get(end) ?? opening;
-
-    const events = series
-      .filter((point) => point.date >= start && point.date <= end)
-      .flatMap((point) => point.events.map((event) => ({ ...event, date: point.date })));
-    const incomeCents = events
-      .filter((event) => event.amount_cents > 0)
-      .reduce((total, event) => total + event.amount_cents, 0);
-    const billsCents = events
-      .filter((event) => event.amount_cents < 0)
-      .reduce((total, event) => total - event.amount_cents, 0);
-    const outCents = incomeCents - (closing - opening);
-
-    return {
-      starts: start,
-      ends: end,
-      // Today is usually part way through a period, and the look ahead usually
-      // stops part way through the last one. Neither stub should be compared
-      // against a whole fortnight, so each says which it is rather than being
-      // assumed.
-      partial: (index === 0 && !paydays.includes(first))
-        || (!next && beyond !== addDays(last, 1)),
-      opening: centsToNumeric(opening),
-      closing: centsToNumeric(closing),
-      income: centsToNumeric(incomeCents),
-      out: centsToNumeric(outCents),
-      bills: centsToNumeric(billsCents),
-      // The remainder, so the two parts of "out" always add back to it.
-      everyday: centsToNumeric(outCents - billsCents),
-      left_over: centsToNumeric(closing - opening),
-      events,
-    };
-  });
-}
-
 
 forecastRouter.get('/', async (req, res, next) => {
   try {

@@ -892,6 +892,16 @@ only what is not yet marked; a queue that counts differently from the list it
 points at is two answers to one question. Places to file are counted as
 distinct places, not rows, because 483 rows are fifteen decisions.
 
+**Home is where the money stands, and what is coming up is part of that.** The
+pay period list lived on the Forecast page, a section away from the fortnight
+card on Home that measures the same unit. It is folded under that card now,
+"The next six fortnights", starting from the period after the current one
+because the card already covers the stub from today to payday. `payPeriods`
+moved into `src/behaviour.js` beside `cashCurve` and `curveHorizon`: one
+definition of how a projection is cut up for a page, used by two routes. Home
+lost the subscriptions list and the decisions box to Plan, because those are
+levers and this page is not.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against
