@@ -913,6 +913,17 @@ about a place and that is the page where places are judged. The route
 through it. Three pages answering one question is what made the app hard to
 read, and a page whose every part belongs somewhere else is not a page.
 
+**Five words a person needs, and the code's words stay in the code.** Must
+pay, could trim, optional; repeating; one off. "Commitment" is what the tables
+and the model call a repeating cost, and it stays that in identifiers, SQL and
+comments, and appears in nothing a person reads: the route errors said "No
+such commitment" to a browser that had never used the word. "Runway" the same:
+the pages say when the money runs out. "Intention" the same: the page says
+decision. The analyst's prompts were told the household's words too, because
+Claude's answers land on the Insights page in whatever vocabulary the prompt
+used. The check is mechanical, every string a person can see against the
+three words, and it is at zero.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

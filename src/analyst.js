@@ -67,7 +67,7 @@ const ANALYSIS_SCHEMA = {
     predicted_expenses: {
       type: 'array',
       description:
-        'Costs that look likely to land soon and are not yet tracked as commitments. Only include ones with a real basis in the data or in what the user said.',
+        'Costs that look likely to land soon and are not yet tracked as repeating costs. Only include ones with a real basis in the data or in what the user said.',
       items: {
         type: 'object',
         properties: {
@@ -103,7 +103,7 @@ How the data works:
 - On a loan account the sign inverts in meaning: a repayment arrives positive because it reduces the debt, and interest charged is negative.
 - Transfers between accounts they own are not spending, with one exception: money leaving a spendable account for the mortgage or a loan really does leave their cash, and is counted.
 - "Liquid" means spendable. The mortgage redraw is deliberately excluded, because it is money they would have to borrow back.
-- "Commitments" are outgoings that recur at a regular interval, found automatically from history.
+- "Repeating costs" (the data calls them commitments) are outgoings that recur at a regular interval, found automatically from history. Call them repeating costs in anything the household reads.
 - "Buckets" are a zero based budget: each pay period, income is divided between them.
 - The runway is the projected date spendable cash reaches zero, given expected income, commitments and the everyday spend rate.
 
@@ -459,7 +459,7 @@ const EXPENSE_PLAN_SCHEMA = {
         additionalProperties: false,
       },
     },
-    effect: { type: 'string', description: 'What adding these would do to the runway and to the budget, in one or two sentences.' },
+    effect: { type: 'string', description: 'What adding these would do to the date the money runs out and to the budget, in one or two sentences.' },
     questions_for_you: { type: 'array', items: { type: 'string' } },
   },
   required: ['understood', 'proposals', 'effect', 'questions_for_you'],

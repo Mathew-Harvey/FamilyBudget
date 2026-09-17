@@ -234,7 +234,7 @@ async function load() {
     return;
   }
   list.append(
-    group('Spendable cash', 'Everything the runway is built from.', spendable),
+    group('Spendable cash', 'Everything the forecast is built from.', spendable),
     group('Not spendable', 'Debts, and money we would have to borrow back.', rest),
     manualForm(),
   );

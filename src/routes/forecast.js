@@ -366,7 +366,7 @@ forecastRouter.post('/commitments', async (req, res, next) => {
     );
     res.status(201).json({ commitment: rows[0] });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'There is already a commitment with that name' });
+    if (err.code === '23505') return res.status(409).json({ error: 'There is already a repeating cost with that name' });
     next(err);
   }
 });
@@ -399,7 +399,7 @@ forecastRouter.post('/commitments/:id', async (req, res, next) => {
         label ?? null,
       ],
     );
-    if (!rows.length) return res.status(404).json({ error: 'No such commitment' });
+    if (!rows.length) return res.status(404).json({ error: 'No such repeating cost' });
     res.json({ commitment: rows[0] });
   } catch (err) {
     next(err);
@@ -409,7 +409,7 @@ forecastRouter.post('/commitments/:id', async (req, res, next) => {
 forecastRouter.delete('/commitments/:id', async (req, res, next) => {
   try {
     const { rowCount } = await query('delete from commitments where id = $1', [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: 'No such commitment' });
+    if (!rowCount) return res.status(404).json({ error: 'No such repeating cost' });
     res.json({ deleted: true });
   } catch (err) {
     next(err);

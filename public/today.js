@@ -477,7 +477,7 @@ function debtsSection(list) {
   if (lines.length) {
     card.append(el('p', { class: 'muted', style: 'margin:0.2rem 0 0', text:
       `${lines.map((row) => row.name).join(', ')}: nothing owing, kept open as a line of credit. `
-      + 'The runway below does not count it, so there is more room than the date suggests.' }));
+      + 'The forecast does not count it, so there is more room than the date suggests.' }));
   }
 
   // A line of credit with nothing owing still shows if it cost something to keep.
