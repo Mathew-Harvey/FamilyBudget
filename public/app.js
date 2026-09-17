@@ -130,7 +130,9 @@ const PLACES = [
   ['/today', 'Home', 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5'],
   ['/spending', 'Spending', 'M3 6h18v13H3zM3 10.5h18'],
   ['/plan', 'Plan', 'M4 17l5-6 4 4 7-8M4 20h16'],
-  ['/setup', 'Set up', 'M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6'],
+  // A queue of decisions, not a settings page. The settings still live under
+  // it, but the tab is named for what you open it to find out.
+  ['/setup', 'Needs you', 'M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6'],
 ];
 
 // The pages that live under Set up. Kept here so the nav and that page cannot

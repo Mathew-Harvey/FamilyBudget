@@ -627,9 +627,9 @@ its own question first now, and the settings sit under it.
 
 **The Set up index counts what is waiting.** Eleven identical rows cannot say
 which one needs you, so you read all eleven every time: 42 transfers waiting on a
-decision looked exactly like none. `src/routes/setup.js` returns cheap counts
-only, no rates and no cost model, because it loads on every visit to the index.
-A row with nothing to report stays quiet, which is most of them most of the time.
+decision looked exactly like none. `src/routes/setup.js` returns counts, and the
+one that needs the cost model builds it (see the queue rule below). A row with
+nothing to report stays quiet, which is most of them most of the time.
 
 **The same decision taken forty two times is one decision.** Transfer pairs were
 offered individually down a page eight thousand pixels long, and a fortnightly
@@ -869,6 +869,28 @@ stands and those are levers.
 null children; the native method stringifies them. A `rows.length ? card :
 null` passed straight to `append` rendered "null" under a heading. Spread
 through `.filter(Boolean)` or wrap in `el()`.
+
+**The fourth tab is a queue of decisions, not a list of pages.** The Set up
+index counted what was waiting and was still eleven rows to read. It is "Needs
+you" now: one row per kind of decision the app cannot take for you, with how
+many and why, linking to where the decision is made, or making it in place
+when it is small enough (a one off is one button). When nothing is waiting it
+says so. The pages you set once sit under it, quiet, and never carry a todo:
+anything that needs a person is a queue row, and the same thing must not be
+said twice in two tones. `SETUP_PAGES` stays the whole registry, because the
+crumb and the nav highlight are built from it; the settings list skips the
+queue only pages so "28 transfers to confirm" is not followed by "Transfers to
+confirm" with no number under it.
+
+**A queue that undercounts is worse than one that takes a moment.** The count
+of repeating costs nobody has judged can only come from the cost model,
+because the merchant judgement is matched through `matchKeyFor` in JavaScript
+and never joined in SQL. `src/routes/setup.js` builds it, which is 36ms, and
+the rule that it computes no model is gone with the reason it existed. The one
+off count uses the same test as `/api/spending/one-off-candidates`, counting
+only what is not yet marked; a queue that counts differently from the list it
+points at is two answers to one question. Places to file are counted as
+distinct places, not rows, because 483 rows are fifteen decisions.
 
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
