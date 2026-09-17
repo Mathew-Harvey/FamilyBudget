@@ -49,7 +49,12 @@ async function overspendingHousehold(pool) {
   await pool.query(
     `insert into commitments
        (match_key, label, typical_amount, cadence_days, next_due, occurrences, regularity, source)
-     values ('A SUBSCRIPTION MONTHLY', 'A subscription', '-100.00', 30,
+     -- Keyed by what its own label reduces to, which is the rule everywhere
+     -- else and was not true here: matchKeyFor drops the one letter word, so
+     -- 'A SUBSCRIPTION MONTHLY' is a key nothing can produce and the merchant
+     -- lookup never found the tier somebody had set. It landed in 'cut' by
+     -- default and this test passed for the wrong reason.
+     values ('SUBSCRIPTION MONTHLY', 'A subscription monthly', '-100.00', 30,
              current_date + 20, 4, 1, 'detected')`,
   );
 

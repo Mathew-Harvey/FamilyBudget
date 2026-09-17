@@ -123,6 +123,11 @@ export async function leanPlan({
       spendAdjustmentCentsPerDay: step.spendAdjustmentCentsPerDay,
     });
     const savedCents = step.savesCents;
+    // What this step adds on its own, as against everything up to and including
+    // it. Each card lists the things that step removes and those sum to the
+    // increment, so a card headed with the cumulative figure disagreed with its
+    // own rows: step two was headed 1,123.92 over four lines adding to 603.66.
+    const addedCents = savedCents - (projected.at(-1)?.saves_cents ?? 0);
     // Lasting means the money coming in covers what is going out, not that the
     // projection happened to reach its last day without hitting zero. Saving
     // 5,689 against a gap of 6,883 runs out eventually and the first version of
@@ -136,6 +141,8 @@ export async function leanPlan({
       removes: step.removes,
       removes_more: step.removesMore ?? 0,
       saves_per_month: fromCents(savedCents),
+      saves_cents: savedCents,
+      adds_per_month: fromCents(addedCents),
       still_short_per_month: fromCents(Math.max(gapCents - savedCents, 0)),
       runway_date: view.runway_date,
       runway_date_friendly: friendlyDate(view.runway_date),
@@ -184,6 +191,15 @@ export async function leanPlan({
     ]
       .sort((a, b) => b.per_month_cents - a.per_month_cents)
       .map((row) => ({ what: row.what, per_month: row.per_month })),
+    // Repeating costs that landed in the optional tier only because nothing has
+    // judged them. They are not offered as a saving, because proposing that
+    // somebody cancel a thing nobody has looked at is a default pretending to
+    // be advice. Named instead, so the answer is a decision rather than a
+    // silent omission.
+    undecided: costs.unjudged_commitments
+      .map((row) => ({ what: row.name, per_month: row.per_month, per_month_cents: row.per_month_cents }))
+      .sort((a, b) => b.per_month_cents - a.per_month_cents)
+      .map(({ per_month_cents: _skip, ...row }) => row),
   };
 }
 

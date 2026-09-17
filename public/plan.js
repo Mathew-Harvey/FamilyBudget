@@ -75,7 +75,9 @@ function stepCard(step, index, short) {
   const outcome = !short
     ? el('div', { class: 'state ok', style: 'font-size:0.88rem' }, [
         el('span', { class: 'dot' }),
-        el('span', { text: `Frees up ${money(step.saves_per_month)} a month on top` }),
+        el('span', { text: index === 0
+          ? `Frees up ${money(step.saves_per_month)} a month`
+          : `${money(step.saves_per_month)} a month with the steps above it` }),
       ])
     : step.lasts
       ? el('div', { class: 'state ok', style: 'font-size:0.88rem' }, [
@@ -91,7 +93,9 @@ function stepCard(step, index, short) {
 
   const rows = step.removes.map((row) =>
     el('div', { class: 'row spread', style: 'gap:10px;padding:5px 0' }, [
-      el('span', { class: 'truncate grow', text: row.what }),
+      el('span', { class: 'truncate grow', text: row.what === 'Discretionary allowance'
+        ? 'Everything else optional, day to day'
+        : row.what }),
       el('span', { class: 'amount out', text: row.from
         ? `${money(row.per_month)} off ${money(row.from)}`
         : money(row.per_month) }),
@@ -104,7 +108,8 @@ function stepCard(step, index, short) {
     el('div', { class: 'row', style: 'gap:9px;margin-bottom:6px' }, [
       el('span', { class: `av ${TONE[step.key] ?? 'trim'}`, style: 'width:26px;height:26px;border-radius:8px;font-size:0.72rem', text: String(index + 1) }),
       el('strong', { class: 'grow', text: step.title }),
-      el('span', { class: 'amount', text: money(step.saves_per_month) }),
+      // What this step adds, which is what the lines below it sum to.
+      el('span', { class: 'amount', text: money(step.adds_per_month ?? step.saves_per_month) }),
     ]),
     outcome,
     el('div', { style: 'margin-top:10px' }, rows),
@@ -184,6 +189,28 @@ async function load() {
             ]),
           ]))),
       );
+    }
+
+    // Repeating costs nothing has judged. Not offered as savings, because
+    // proposing you cancel something nobody has looked at is a default
+    // pretending to be advice, and not hidden either.
+    const undecided = plan.undecided ?? [];
+    const undecidedBox = document.getElementById('undecided');
+    undecidedBox.innerHTML = '';
+    if (undecided.length) {
+      undecidedBox.append(el('div', { class: 'nudge' }, [
+        el('h3', { text: undecided.length === 1
+          ? 'One repeating cost has not been looked at'
+          : `${undecided.length} repeating costs have not been looked at` }),
+        el('p', { text: 'Nothing above offers to stop these, because nothing has said '
+          + 'whether they are optional. Say so on Spending and they join the plan.' }),
+        el('div', { style: 'margin-top:9px' }, undecided.slice(0, 6).map((row) =>
+          el('div', { class: 'row spread', style: 'padding:3px 0' }, [
+            el('span', { class: 'grow truncate', text: row.what }),
+            el('span', { class: 'amount', text: money(row.per_month) }),
+          ]))),
+        el('a', { class: 'btn', href: '/spending', text: 'Decide them', style: 'margin-top:11px' }),
+      ]));
     }
 
     // What is not being touched. Said out loud, because a page that only lists

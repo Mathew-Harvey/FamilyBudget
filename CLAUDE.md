@@ -477,6 +477,22 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**The plan must not offer to cancel something nobody has looked at.** The same
+mistake as the Spending diagram, with consequences: `optional_commitments` was
+everything in the `cut` tier, and `cut` is where a commitment lands when neither
+its merchant nor its category has said anything. `buildCostModel` records
+`tier_source` now, `optional_commitments` excludes `default`, and
+`unjudged_commitments` carries them so `/plan` can name them and link to the page
+that decides them. A default pretending to be advice is worse than a gap.
+
+**A card headed with a cumulative figure over rows that sum to an increment is
+two numbers that disagree.** Step two of the plan was headed 1,123.92 above four
+lines adding to 603.66, because `saves_per_month` is cumulative by design and
+the rows are what that step alone removes. `adds_per_month` is the increment and
+heads the card; the cumulative figure moved into the outcome line where it says
+what it is. Both come from the server, because the browser does not do
+arithmetic on money.
+
 **A default is not a finding, and the Spending page was drawing one as the
 other.** `TIER_SQL` sends anything with no judgement on it to `cut`, which is
 right for a projection: unassessed spending counted as optional shortens the

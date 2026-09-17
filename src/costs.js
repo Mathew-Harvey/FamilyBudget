@@ -164,6 +164,14 @@ export async function buildCostModel({ window, client = { query } } = {}) {
 
   const commitments = commitmentRows.map((row) => {
     const merchant = merchantByCommitmentKey.get(row.match_key);
+    // Where the tier came from, not just what it is. 'cut' is the default when
+    // nothing has judged this merchant or its category, and a default is not a
+    // finding: the plan was offering to cancel things nobody had ever looked at,
+    // which is the same mistake the Spending page was making in a diagram.
+    const assessed = debtKeys.has(row.match_key) ? 'debt'
+      : merchant?.lean_tier ? 'merchant'
+      : row.category_tier ? 'category'
+      : 'default';
     const tier = debtKeys.has(row.match_key)
       ? 'keep'
       : merchant?.lean_tier ?? row.category_tier ?? 'cut';
@@ -180,6 +188,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
       category: row.category,
       group: row.group_name,
       tier,
+      tier_source: assessed,
       is_debt: debtKeys.has(row.match_key),
       what_it_is: merchant?.what_it_is ?? null,
       per_month_cents: toCents(row.per_month),
@@ -193,6 +202,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
             coalesce(t.display_description, t.description) as label,
             coalesce(m.display_name, t.merchant_key, 'Not described by the bank') as name,
             coalesce(m.lean_tier, cat.lean_tier, 'cut') as tier,  -- see TIER_SQL
+            (m.lean_tier is null and cat.lean_tier is null) as tier_defaulted,
             coalesce(cat.name, 'Uncategorised') as category
        from budget_flows t
        left join merchants m on m.match_key = t.merchant_key
@@ -219,6 +229,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
       cents,
       place: row.merchant_key || matchKeyFor(row.label) || row.label,
       tier: row.to_own_debt ? 'keep' : row.tier,
+      tier_source: row.to_own_debt ? 'debt' : (row.tier_defaulted ? 'default' : 'set'),
     });
   }
 
@@ -262,6 +273,7 @@ export async function buildCostModel({ window, client = { query } } = {}) {
         name: row.name,
         category: row.category,
         tier: row.tier,
+        tier_source: row.tier_source,
         is_debt: row.to_own_debt,
         recurring,
         days_paid: datesByPlace.get(row.place).size,
@@ -347,7 +359,14 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     // The ones a scenario is allowed to turn off. Three pages were each
     // filtering on the tier themselves, which is three places to disagree about
     // what "optional" means. This module owns classification, so it owns this.
-    optional_commitments: commitments.filter((row) => row.tier === 'cut'),
+    optional_commitments: commitments.filter(
+      (row) => row.tier === 'cut' && row.tier_source !== 'default',
+    ),
+    // Cut only because nothing has said otherwise. Named so a page can ask
+    // rather than assume, never offered as a saving.
+    unjudged_commitments: commitments.filter(
+      (row) => row.tier === 'cut' && row.tier_source === 'default',
+    ),
     variable,
     debt_keys: debtKeys,
     historical_discretionary_per_month_cents: historicalDiscretionaryCents,
