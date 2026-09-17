@@ -53,8 +53,14 @@ function initialsOf(label) {
 
 // keep, trim or cut, straight from the server. src/costs.js owns classification
 // and no page reimplements it, so this only guards against an older payload.
+// A commitment that reached the optional tier only because nothing has judged
+// it is not a choice somebody made, it is a question nobody has answered. It
+// gets the hatch rather than the pale blue, the same mark the Spending diagram
+// and the Lasting plan use, so the front page stops presenting a default as a
+// decision.
 function tierOf(item) {
-  return ['keep', 'trim', 'cut'].includes(item.tier) ? item.tier : 'cut';
+  if (item.tier === 'cut' && item.tier_source === 'default') return 'unknown';
+  return ['keep', 'trim', 'cut'].includes(item.tier) ? item.tier : 'unknown';
 }
 
 // The opening. One sentence someone can repeat to the other person in the
@@ -484,7 +490,9 @@ async function whatToStop(data) {
       // because a small monthly number is easy to say yes to, and showing the
       // year next to it undoes exactly that framing.
       el('div', { class: 'amount out', style: 'text-align:right;white-space:nowrap', text: `${money(item.per_year)} a year` }),
-      el('div', { class: 'truncate s', text: item.what_it_is || item.category || '' }),
+      el('div', { class: 'truncate s', text: tierOf(item) === 'unknown'
+        ? 'nothing has said whether this is optional'
+        : item.what_it_is || item.category || '' }),
       // No per row day estimate. Working it out in closed form ignores the
       // paydays in between and came out about double what this app's own
       // projection says, and two numbers that disagree are worse than one.

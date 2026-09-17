@@ -452,6 +452,11 @@ export async function whatToStop({
         // boolean here forced it to guess the third one back, which is a second
         // copy of a classification src/costs.js owns.
         tier: row.tier,
+        // And where that tier came from. 'cut' is where a commitment lands when
+        // nothing has judged it, so the front page was presenting things nobody
+        // had looked at as things somebody had decided were optional, and
+        // inviting you to tick them off. A default is not a finding.
+        tier_source: row.tier_source,
         essential: row.tier !== 'cut',
         // Fixed means it cannot simply be cancelled this month. It still shows,
         // because knowing the mortgage is 47,000 a year is worth knowing, but
@@ -553,8 +558,48 @@ export async function intentions({ client = { query } } = {}) {
 // to an accuracy it does not have: the real schedule depends on a rate this app
 // is not told.
 export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_DAYS } = {}) {
+  // One pass over the debt payments, not two per account.
+  //
+  // This was two lateral subqueries per non liquid account, each scanning
+  // budget_flows and each carrying a correlated exists against transactions for
+  // the paired side. On the front page that came to 1,484ms of a 1,543ms
+  // request: 96 percent of the time it took to open the app, against 15ms for
+  // the whole Spending page. The join is the same three way OR as before, so a
+  // payment that matches an account more than one way still counts once per
+  // account exactly as it did.
+  //
+  // The span is deliberately unbounded here: per_month divides by how long the
+  // debt has been serviced, which is the first payment ever and not the first
+  // one the window caught. The year figure filters inside instead.
   const { rows } = await client.query(
-    `select a.id, a.name, a.role, a.bank,
+    `with paid as (
+       select t.txn_date, t.amount, a.id as account_id
+         from budget_flows t
+         left join merchants m on m.match_key = t.merchant_key
+         left join transactions p on p.id = t.transfer_pair_id
+         join accounts a
+           on (m.pays_account_id = a.id
+               or t.internal_to_account_id = a.id
+               or p.account_id = a.id)
+        where t.counts and t.to_own_debt and not a.is_liquid
+     ),
+     windowed as (
+       select account_id,
+              sum(-amount) filter (where txn_date > current_date - $1::integer) * 30.44
+                / greatest(least($1::integer, current_date - min(txn_date)), 30) as per_month,
+              count(*) filter (where txn_date > current_date - $1::integer)::int as payments,
+              min(txn_date) filter (where txn_date > current_date - $1::integer) as first_payment
+         from paid group by account_id
+     ),
+     yearly as (
+       -- A full year, for the debts paid too rarely to have a monthly rate. The
+       -- Bendigo card is one annual fee: the window cannot see it, the year can.
+       select account_id, sum(-amount) as paid_in_year
+         from paid
+        where txn_date > current_date - 365
+        group by account_id
+     )
+     select a.id, a.name, a.role, a.bank,
             b.balance,
             round(coalesce(d.per_month, 0), 2) as per_month,
             coalesce(d.payments, 0) as payments,
@@ -565,56 +610,8 @@ export async function debts({ client = { query }, window = DEFAULT_SPEND_WINDOW_
          select balance from balances where account_id = a.id
           order by balance_date desc limit 1
        ) b on true
-       left join lateral (
-         -- The window, or the days this debt has been paid for if that is
-         -- shorter.
-         --
-         -- Two things had to be true at once. It has to use the same window as
-         -- the headline, or the rows in this card do not add up to the "paying
-         -- down debt" figure directly above them and the page contradicts
-         -- itself. And it must not divide by days an account did not exist for,
-         -- which is the same defect everydaySpendRate had. least() does both.
-         --
-         -- The second of those is about how long the debt has been serviced,
-         -- so the first payment it measures from is the first one ever, not
-         -- the first one inside the window. Taking it from inside meant the
-         -- denominator started at the earliest payment the window happened to
-         -- catch, which for anything monthly is about a cadence after the
-         -- window opens: the mortgage was divided by 106 days instead of 120
-         -- and reported at 2,814 a month against a real 2,450. The window is
-         -- therefore applied with a filter rather than in the where clause, so
-         -- the totals stay windowed while the span does not.
-         select sum(-t.amount) filter (where t.txn_date > current_date - $1::integer) * 30.44
-                  / greatest(least($1::integer, current_date - min(t.txn_date)), 30) as per_month,
-                count(*) filter (where t.txn_date > current_date - $1::integer)::int as payments,
-                sum(-t.amount) filter (where t.txn_date > current_date - $1::integer) as paid_in_window,
-                min(t.txn_date) filter (where t.txn_date > current_date - $1::integer) as first_payment
-           from budget_flows t
-           left join merchants m on m.match_key = t.merchant_key
-          where t.counts and t.to_own_debt
-            and (m.pays_account_id = a.id
-                 or t.internal_to_account_id = a.id
-                 or exists (
-                   select 1 from transactions p
-                    where p.id = t.transfer_pair_id and p.account_id = a.id
-                 ))
-       ) d on true
-       left join lateral (
-         -- A full year, for the debts paid too rarely to have a monthly rate.
-         -- The Bendigo card is one annual fee: the window cannot see it and the
-         -- year can.
-         select sum(-t.amount) as paid_in_year
-           from budget_flows t
-           left join merchants m on m.match_key = t.merchant_key
-          where t.counts and t.to_own_debt
-            and t.txn_date > current_date - 365
-            and (m.pays_account_id = a.id
-                 or t.internal_to_account_id = a.id
-                 or exists (
-                   select 1 from transactions p
-                    where p.id = t.transfer_pair_id and p.account_id = a.id
-                 ))
-       ) y on true
+       left join windowed d on d.account_id = a.id
+       left join yearly y on y.account_id = a.id
       where not a.is_liquid
       order by b.balance nulls last`,
     [window],

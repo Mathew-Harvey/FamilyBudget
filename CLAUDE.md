@@ -477,6 +477,17 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**`debts()` was 96 percent of the front page.** Two lateral subqueries per non
+liquid account, each scanning `budget_flows` and each carrying a correlated
+`exists` against `transactions` for the paired side, came to 1,484ms of a
+1,543ms request. Opening the app meant more than a second of "Loading..." while
+the whole Spending page took 15ms. The debt payments are resolved once into a
+CTE and aggregated twice from it, which is 21ms and byte identical output. The
+span in that CTE is deliberately unbounded, because `per_month` divides by how
+long the debt has been serviced and that is the first payment ever, not the
+first the window caught; the year figure filters inside. Profile the parts
+before optimising a page: everything else on Today together was 59ms.
+
 **The plan must not offer to cancel something nobody has looked at.** The same
 mistake as the Spending diagram, with consequences: `optional_commitments` was
 everything in the `cut` tier, and `cut` is where a commitment lands when neither
