@@ -34,7 +34,7 @@ JSON API, so alerts add no package at all.
 ```
 migrations/  numbered .sql files, applied in order by scripts/migrate.js
 scripts/     migrate.js, discover.js, create-user.js, reconcile.js,
-             backtest.js, rekey-commitments.js
+             backtest.js, backtest-cadence.js, rekey-commitments.js
 src/         db.js         one shared pg pool, SSL and type parsers
              redbark.js    every Redbark API call, isolated here
              sync.js       the sync engine, npm run sync
@@ -268,6 +268,16 @@ run `node scripts/rekey-commitments.js` to see what it would change and
 used to live in a key namespace of their own, which meant their spending was
 projected and also left in the everyday rate, so those rows were counted twice.
 The script moves them across and names anything that collides.
+
+If it reports that a commitment matches nothing that was actually charged, the
+name it was entered under is not the name the bank uses, so nothing subtracts
+its spending from the everyday rate and it is counted twice. Rename it to the
+words on the statement, or stand it down on the Forecast page.
+
+`node scripts/backtest-cadence.js` measures which statistic should set a
+commitment's cadence, against your own history rather than anyone's assumption.
+It is the same method as `scripts/backtest.js`: stand at a past date, project,
+compare against what really happened next.
 
 ### The order it has to happen in
 

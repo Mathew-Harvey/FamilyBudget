@@ -246,18 +246,26 @@ console.log(`        ${money(here.out_per_month).padStart(14)}  a month is in th
 // The difference is projected commitments against how they actually fell. Named
 // per commitment, because an unexplained gap here is the one that matters.
 const { rows: txns } = await query(
-  `select coalesce(display_description, description) as label, -amount as amt
+  `select coalesce(display_description, description) as label, -amount as amt, txn_date
      from budget_flows where counts and amount < 0 and not one_off and not no_longer_expected
-       and txn_date > current_date - $1::integer`, [WINDOW]);
+       and txn_date > current_date - $1::integer and txn_date <= current_date`, [WINDOW]);
 const actual = new Map();
+const chargedOn = new Map();
 for (const row of txns) {
   const key = matchKeyFor(row.label);
   actual.set(key, (actual.get(key) ?? 0) + Number(row.amt));
+  if (!chargedOn.has(key)) chargedOn.set(key, new Set());
+  chargedOn.get(key).add(String(row.txn_date).slice(0, 10));
 }
 const drift = costs.commitments
   .map((row) => ({
     label: row.label.slice(0, 34),
     over: Number(row.per_month) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW,
+    // How many days the window actually saw it charged. A difference with a
+    // day count beside it explains itself: one day on a quarterly bill is the
+    // window undercounting, and zero days is a commitment describing spending
+    // that is filed under some other key and therefore counted twice.
+    days: chargedOn.get(row.match_key)?.size ?? 0,
   }))
   .filter((row) => Math.abs(row.over) > 20)
   .sort((a, b) => b.over - a.over);
@@ -277,7 +285,29 @@ console.log(`        ${money(-historicalDiscretionary).padStart(14)}  optional h
 console.log(`        ${money(-irregularEssential).padStart(14)}  irregular essentials not turned into a rate`);
 console.log(`        ${money(allowance).padStart(14)}  discretionary allowance added`);
 console.log('\n        commitment timing and amount differences:');
-for (const row of drift) console.log(`        ${money(row.over).padStart(14)}  ${row.label}`);
+for (const row of drift) {
+  const charged = row.days === 0
+    ? 'charged on no day in the window'
+    : `charged on ${row.days} day${row.days === 1 ? '' : 's'}`;
+  console.log(`        ${money(row.over).padStart(14)}  ${row.label.padEnd(36)}${charged}`);
+}
+
+// A commitment that matches no transaction at all is the double count wearing
+// a different hat. Its key is self consistent, so the check above is happy, but
+// the spending it was written to describe is filed under some other key and is
+// therefore still in the everyday rate while the commitment is also projected.
+// Suncorp entered by hand as "Suncorp insurance" while the bank writes
+// "DIRECT DEBIT 000123 SUNCORP METWAY" is exactly this.
+const orphans = costs.commitments
+  .map((row) => ({ label: row.label, per_month: row.per_month, days: chargedOn.get(row.match_key)?.size ?? 0 }))
+  .filter((row) => row.days === 0);
+check('every commitment matches something that was actually charged',
+  orphans.length === 0,
+  orphans.length
+    ? `${orphans.length} match nothing in the last ${WINDOW} days and are projected anyway: `
+      + orphans.map((row) => `${row.label} ${money(row.per_month)}/mo`).join(', ')
+      + '. Rename it to the words the bank uses, or stand it down on the Forecast page.'
+    : `${costs.commitments.length} checked`);
 check('the household plan is fully accounted for by named choices',
   Math.abs(explainedPlan - Number(here.out_per_month)) < 5,
   `${money(explainedPlan)} explained against ${money(here.out_per_month)} shown`);
