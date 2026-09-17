@@ -9,14 +9,12 @@
 </head>
 <body>
 <main>
-  <h2>Insights</h2>
-  <p class="muted">Claude reads a snapshot of where you stand and says what matters. Account numbers are never sent, not even the ones banks bury inside a description.</p>
   <div id="notice"></div>
 
   <div class="card stack">
     <div id="claudeState" class="muted"></div>
     <div class="row">
-      <label class="row" style="margin:0"><input type="checkbox" id="enabled"> Analyse automatically</label>
+      <label class="tick"><input type="checkbox" class="switch" id="enabled"> Analyse automatically</label>
       <div><label for="cadence">Every</label><input id="cadence" type="number" style="width:5rem"> <span class="muted">days</span></div>
       <div><label for="effort">Depth</label><select id="effort">
         <option value="low">quick</option><option value="medium">medium</option>

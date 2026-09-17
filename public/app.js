@@ -35,6 +35,27 @@ export function formatDate(value) {
   return String(value).slice(0, 10);
 }
 
+// A timestamp a person reads, in the household's own day.
+//
+// Four pages printed new Date(x).toLocaleString(), which renders in whatever
+// locale the browser happens to be in: an Australian household was reading
+// "9/17/2026, 3:49:34 AM" for a sync that ran this morning. Recent times are
+// said as an age, because "6 hours ago" answers "is this current" and a
+// timestamp makes you work it out.
+export function formatWhen(value) {
+  if (!value) return 'never';
+  const then = new Date(value);
+  if (Number.isNaN(then.getTime())) return '';
+  const mins = Math.round((Date.now() - then.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  if (days <= 14) return `${days} day${days === 1 ? '' : 's'} ago`;
+  return then.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -116,6 +137,24 @@ export const SETUP_PAGES = [
     ['/insights', 'Ask Claude about it', 'Periodic analysis, off until you switch it on'],
   ]],
 ];
+
+// The head every page under Set up wears.
+//
+// Ten pages had ten hand written heads, which drifted: some had a description
+// and some did not, none of them said which section they belonged to, and the
+// only way back was the tab bar, which lands you on the index rather than where
+// you came from. One helper, so they cannot drift again.
+export function pageIntro(title, blurb) {
+  const section = SETUP_PAGES.find(([, rows]) =>
+    rows.some(([href]) => href === window.location.pathname));
+  document.querySelector('main').prepend(el('div', { class: 'intro' }, [
+    section ? el('a', { class: 'crumb', href: '/setup' }, [
+      el('span', { text: '\u2190 ' }), el('span', { text: section[0] }),
+    ]) : null,
+    el('h2', { text: title }),
+    blurb ? el('p', { text: blurb }) : null,
+  ]));
+}
 
 function icon(path) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

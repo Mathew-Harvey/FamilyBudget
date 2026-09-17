@@ -1,6 +1,7 @@
-import { api, el, formatAmount, amountClass, formatDate, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, amountClass, formatDate, renderNav, showError, pageIntro } from '/app.js';
 
 renderNav('/rules');
+pageIntro('Rules', 'Filing a description under a category once, so it stays filed. A rule never overwrites a category somebody set by hand.');
 
 let groups = [];
 let rules = [];

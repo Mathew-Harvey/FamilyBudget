@@ -477,6 +477,43 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**A workshop page leads with its state, not its form.** Sync opened on a button
+with the one fact you came for, how current the data is, buried in a US
+formatted timestamp in a table cell. Alerts opened on a settings form with its
+master switch unticked in a row of three ticked ones, so whether anything was
+being emailed took working out. Accounts asked which accounts count as spendable
+without ever printing how much spendable cash that came to. Each of them answers
+its own question first now, and the settings sit under it.
+
+**The Set up index counts what is waiting.** Eleven identical rows cannot say
+which one needs you, so you read all eleven every time: 42 transfers waiting on a
+decision looked exactly like none. `src/routes/setup.js` returns cheap counts
+only, no rates and no cost model, because it loads on every visit to the index.
+A row with nothing to report stays quiet, which is most of them most of the time.
+
+**The same decision taken forty two times is one decision.** Transfer pairs were
+offered individually down a page eight thousand pixels long, and a fortnightly
+standing transfer contributes one every fortnight. They group by the two accounts
+and the amount, and a group is confirmed in one request through
+`/api/transfers/confirm-many`. Which side is "from" is the side the money left,
+never whichever uuid sorted first: `/pairs` picks one row per pair with
+`t.id < p.id`, so without that the same standing transfer forms two groups
+pointing at each other. Individual pairs stay confirmable on their own, because
+a group is a convenience and never a claim that the rows are interchangeable.
+
+**A tick is not a text field.** `input { width: 100% }` was being applied to
+every checkbox, which stretched the box across its row and squeezed its own
+label into a two word column: "Spendable cash / is liquid" on Accounts and four
+unreadable stacks on Alerts. `input[type="checkbox"]` has its own size now, and
+the one control that turns a page's feature on wears `.switch`.
+
+**One head, one date format.** `pageIntro` in app.js gives every page under Set
+up the same head and a way back to its section; ten hand written heads had
+drifted and none of them said where they belonged. `formatWhen` is the one
+timestamp: four pages called `toLocaleString()`, which renders in the browser's
+locale, so an Australian household read "9/17/2026, 3:49:34 AM" for a sync that
+ran this morning.
+
 **There is one cash chart, `public/chart.js`.** Home and Forecast each drew the
 same projection their own way, which is two pictures of one thing free to
 disagree, and the copy on the Forecast page was still painting its axis labels

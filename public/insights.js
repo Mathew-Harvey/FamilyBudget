@@ -1,6 +1,7 @@
-import { api, el, formatAmount, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, renderNav, showError, formatWhen, pageIntro } from '/app.js';
 
 renderNav('/insights');
+pageIntro('Ask Claude about it', 'Periodic analysis and predictive budgeting. Off until you switch it on: it costs money per run and sends financial data off this machine.');
 
 const SEVERITY = { high: 'out', medium: '', low: '' };
 
@@ -53,7 +54,7 @@ function analysisCard(analysis) {
 
   bits.push(
     el('div', { class: 'muted', style: 'font-size:0.78rem' }, [
-      `${new Date(analysis.created_at).toLocaleString()}, ${analysis.model ?? ''}, `,
+      `${formatWhen(analysis.created_at)}, ${analysis.model ?? ''}, `,
       `${analysis.input_tokens ?? 0} in / ${analysis.output_tokens ?? 0} out`,
       analysis.question ? ` . asked: "${analysis.question}"` : '',
     ]),
@@ -228,7 +229,7 @@ async function load() {
   document.getElementById('cadence').value = settings.cadence_days;
   document.getElementById('effort').value = settings.effort;
   document.getElementById('claudeState').textContent = claude.configured
-    ? `Using ${claude.model}. Last run ${settings.last_run_at ? new Date(settings.last_run_at).toLocaleString() : 'never'}.`
+    ? `Using ${claude.model}. Last run ${formatWhen(settings.last_run_at)}.`
     : 'ANTHROPIC_API_KEY is not set, so analysis cannot run yet. Add it to the environment and restart.';
 
   const history = document.getElementById('history');

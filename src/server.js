@@ -18,6 +18,7 @@ import { analystRouter } from './routes/analyst.js';
 import { spendingRouter } from './routes/spending.js';
 import { behaviourRouter } from './routes/behaviour.js';
 import { leanRouter } from './routes/lean.js';
+import { setupRouter } from './routes/setup.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -76,6 +77,7 @@ export function createApp() {
   app.use('/api/spending', spendingRouter);
   app.use('/api/today', behaviourRouter);
   app.use('/api/plan', leanRouter);
+  app.use('/api/setup', setupRouter);
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   // Today is the front door. The first screen should be the one that answers

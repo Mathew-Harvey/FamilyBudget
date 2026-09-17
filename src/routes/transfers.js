@@ -68,6 +68,51 @@ transfersRouter.post('/reject', async (req, res, next) => {
   }
 });
 
+// The same decision, taken once.
+//
+// A fortnightly transfer between the same two accounts for the same amount
+// produces a pair every fortnight, and this page offered all 42 of them
+// separately: 42 identical judgements, 42 requests, down a page eight thousand
+// pixels long. Deciding a group is deciding the shape, which is what a person
+// was actually doing each of those 42 times.
+//
+// Everything here was already paired by the detector, which only pairs
+// automatically when a match beats every other candidate on both sides. This
+// endorses that, it does not invent a pairing.
+transfersRouter.post('/confirm-many', async (req, res, next) => {
+  try {
+    const pairs = Array.isArray(req.body?.pairs) ? req.body.pairs : null;
+    if (!pairs?.length) return res.status(400).json({ error: 'Give a list of pairs' });
+    if (pairs.length > 500) return res.status(400).json({ error: 'Too many at once' });
+    if (pairs.some((pair) => !pair?.id || !pair?.pair_id)) {
+      return res.status(400).json({ error: 'Every pair needs an id and a pair_id' });
+    }
+    await withTransaction(async (client) => {
+      for (const pair of pairs) await linkPair(client, pair.id, pair.pair_id, 'confirmed');
+    });
+    res.json({ confirmed: pairs.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+transfersRouter.post('/reject-many', async (req, res, next) => {
+  try {
+    const pairs = Array.isArray(req.body?.pairs) ? req.body.pairs : null;
+    if (!pairs?.length) return res.status(400).json({ error: 'Give a list of pairs' });
+    if (pairs.length > 500) return res.status(400).json({ error: 'Too many at once' });
+    if (pairs.some((pair) => !pair?.id || !pair?.pair_id)) {
+      return res.status(400).json({ error: 'Every pair needs an id and a pair_id' });
+    }
+    await withTransaction(async (client) => {
+      for (const pair of pairs) await rejectPair(client, pair.id, pair.pair_id);
+    });
+    res.json({ rejected: pairs.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 transfersRouter.post('/link', async (req, res, next) => {
   try {
     const { id, pair_id: pairId } = req.body ?? {};

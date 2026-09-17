@@ -3,22 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transfers</title>
+<title>Transfers to confirm</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <main>
-  <h2>Transfers to review</h2>
-  <p class="muted">Money moving between our own accounts is not spending. Confirm the pairs that are right and reject the ones that are not.</p>
   <div id="notice"></div>
-  <div id="pairs"><p class="muted">Loading...</p></div>
-
-  <h2>Needs a decision</h2>
-  <p class="muted">These could pair more than one way, so nothing was linked automatically. Pick the matching pair, or leave them alone.</p>
-  <div id="candidates"><p class="muted">Loading...</p></div>
-
-  <h2>Already confirmed</h2>
+  <div id="head"></div>
+  <div id="pairs"></div>
+  <div id="candidates"></div>
   <div id="confirmed"></div>
 </main>
 <script type="module" src="/transfers.js"></script>

@@ -1,6 +1,7 @@
-import { api, el, formatAmount, amountClass, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, amountClass, renderNav, showError, pageIntro } from '/app.js';
 
 renderNav('/buckets');
+pageIntro('Pay cycle and envelopes', 'How often you are paid, and giving every dollar a job before it is spent.');
 
 let periods = [];
 let groups = [];

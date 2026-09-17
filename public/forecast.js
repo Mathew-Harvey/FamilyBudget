@@ -1,7 +1,8 @@
-import { api, el, formatAmount, formatDate, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, formatDate, renderNav, showError, pageIntro } from '/app.js';
 import { cashChart } from '/chart.js';
 
 renderNav('/forecast');
+pageIntro('Recurring costs', 'The bills that repeat, the cash curve they make, and what to do about a purchase that is never happening again.');
 
 const excludedLuxuryCommitments = new Set();
 

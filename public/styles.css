@@ -247,7 +247,21 @@ input, select, textarea {
   font: inherit; color: var(--ink); background: var(--surface);
   border: 1px solid var(--ring); border-radius: 10px; padding: 9px 12px; width: 100%;
 }
+/* A tick is not a text field. The width above was being applied to every
+   checkbox on the workshop pages, which stretched the box across its row and
+   squeezed its own label into a two word column: "Spendable cash / is liquid"
+   on Accounts, and four unreadable stacks on Alerts. */
+input[type="checkbox"], input[type="radio"] {
+  width: auto; flex: none; margin: 0; accent-color: var(--accent);
+  width: 17px; height: 17px; border-radius: 5px;
+}
 label { font-size: 0.83rem; color: var(--ink-2); font-weight: 560; }
+/* A label wrapping a tick is a control, not a caption: it reads at body size,
+   sits on one line and the whole thing is clickable. */
+label.tick {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 0.9rem; color: var(--ink); font-weight: 500; margin: 0;
+}
 
 .badge {
   display: inline-block; font-size: 0.72rem; font-weight: 640; letter-spacing: 0.04em;
@@ -459,3 +473,56 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 
 /* Room for the labels that sit above the line at either end. */
 .cash { padding-top: 6px; }
+
+/* --- a group of switches under the thing that turns them on -------------- */
+/* Indented and ruled, because three ticks in a row beside a fourth that owns
+   them reads as four peers. On Alerts the master switch was off while all
+   three below it were on, which is a sentence nobody can parse. */
+.sub {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 12px 0 2px 14px; border-left: 2px solid var(--line); margin-top: 4px;
+}
+.sub[aria-disabled="true"] { opacity: 0.45; }
+
+/* --- the head of a page under Set up ------------------------------------- */
+.intro { margin: 2px 0 14px; }
+.intro h2 { margin: 0; font-size: 1.32rem; letter-spacing: -0.02em; }
+.intro p { margin: 5px 0 0; color: var(--muted); font-size: 0.9rem; max-width: 62ch; }
+.crumb {
+  display: inline-block; font-size: 0.78rem; font-weight: 620; color: var(--muted);
+  text-decoration: none; text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 7px;
+}
+.crumb:hover { color: var(--ink); }
+
+/* --- a switch ------------------------------------------------------------ */
+/* For the one control that turns a whole page's feature on. A 17px tick in the
+   corner reads as a detail, and whether alerts are on is not a detail. */
+input[type="checkbox"].switch {
+  appearance: none; -webkit-appearance: none;
+  width: 46px; height: 27px; border-radius: 999px; flex: none;
+  background: var(--line); border: 1px solid var(--ring); position: relative;
+  cursor: pointer; transition: background 0.16s;
+}
+input[type="checkbox"].switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 21px; height: 21px; border-radius: 50%; background: var(--surface);
+  box-shadow: 0 1px 3px rgba(11, 11, 11, 0.25); transition: transform 0.16s;
+}
+input[type="checkbox"].switch:checked { background: var(--good); border-color: var(--good); }
+input[type="checkbox"].switch:checked::after { transform: translateX(19px); }
+input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
+
+/* --- what a row of the Set up index has to say --------------------------- */
+/* Quiet by default, because most rows have nothing to report and a list where
+   every row shouts is a list where nothing does. */
+.note {
+  font-size: 0.78rem; font-weight: 560; color: var(--muted);
+  white-space: nowrap; flex: none;
+}
+.note.todo {
+  color: var(--ink); background: var(--warn-bg); border: 1px solid var(--warn-line);
+  border-radius: 999px; padding: 3px 9px; font-weight: 620;
+}
+.note.bad { color: var(--out); font-weight: 620; }
+.note.off { color: var(--muted); }

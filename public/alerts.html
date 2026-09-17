@@ -3,42 +3,41 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Alerts</title>
+<title>Email alerts</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <main>
-  <h2>Alerts</h2>
-  <p class="muted">Checked at the end of every sync. The same warning is not repeated for three days unless it gets worse.</p>
   <div id="notice"></div>
+  <div id="head"></div>
 
-  <div class="card stack">
-    <div id="emailState" class="muted"></div>
-    <div class="filters">
-      <div><label for="to">Send to</label><input id="to" type="email" style="width:100%" placeholder="you@example.com"></div>
-      <div><label for="runway">Warn when runway drops below</label><input id="runway" type="number" style="width:100%"></div>
-      <div><label for="large">Flag transactions at or above</label><input id="large" type="number" step="0.01" style="width:100%"></div>
-    </div>
-    <div class="row">
-      <label class="row" style="margin:0"><input type="checkbox" id="enabled"> Alerts on</label>
-      <label class="row" style="margin:0"><input type="checkbox" id="overspend"> Bucket over budget</label>
-      <label class="row" style="margin:0"><input type="checkbox" id="syncfail"> Sync failures</label>
-      <label class="row" style="margin:0"><input type="checkbox" id="unreviewed"> Waiting for review</label>
-    </div>
-    <div class="row">
-      <button class="primary" id="save">Save</button>
-      <button id="test">Send a test</button>
-      <button id="run">Run the checks now</button>
-      <span class="muted" id="state"></span>
-    </div>
-  </div>
+  <div id="preview"></div>
 
-  <h2>What would be sent right now</h2>
-  <div id="preview"><p class="muted">Loading...</p></div>
+  <details class="card" id="settings">
+    <summary>Who it goes to, and when</summary>
+    <div class="stack" style="margin-top:14px">
+      <div class="filters">
+        <div><label for="to">Send to</label><input id="to" type="email" placeholder="you@example.com"></div>
+        <div><label for="runway">Warn below this many days of runway</label><input id="runway" type="number"></div>
+        <div><label for="large">Flag a transaction at or above</label><input id="large" type="number" step="0.01"></div>
+      </div>
+      <div class="sub" id="switches">
+        <div class="s" style="margin-bottom:2px">Send an email when</div>
+        <label class="tick"><input type="checkbox" id="overspend"> A bucket goes over budget</label>
+        <label class="tick"><input type="checkbox" id="syncfail"> A sync fails</label>
+        <label class="tick"><input type="checkbox" id="unreviewed"> Things are waiting to be reviewed</label>
+      </div>
+      <div class="row" style="flex-wrap:wrap">
+        <button class="primary" id="save">Save</button>
+        <button id="test">Send a test</button>
+        <button id="run">Run the checks now</button>
+        <span class="muted small" id="state"></span>
+      </div>
+    </div>
+  </details>
 
-  <h2>Recently</h2>
-  <div class="card"><div id="log"></div></div>
+  <div id="log"></div>
 </main>
 <script type="module" src="/alerts.js"></script>
 </body>

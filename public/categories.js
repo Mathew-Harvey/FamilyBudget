@@ -1,6 +1,7 @@
-import { api, el, renderNav, showError } from '/app.js';
+import { api, el, renderNav, showError, pageIntro } from '/app.js';
 
 renderNav('/categories');
+pageIntro('Categories', 'The taxonomy everything is filed under, and what each bank calls things.');
 
 const KINDS = ['expense', 'income', 'transfer', 'ignore'];
 let groups = [];
