@@ -279,8 +279,31 @@ export async function forecast({
     ? costs.discretionary_allowance_cents
     : Math.max(assertCents(discretionaryCentsPerMonth, 'discretionary allowance'), 0);
   const allowancePerDayCents = dailyFromMonthly(allowanceCents);
+  // Essentials, both kinds, plus the allowance.
+  //
+  // The irregular half used to be left out: essential spending at a place seen
+  // on fewer than three separate dates. The gate is right about merchants, and
+  // for a good reason, one payment divided by a window is not that merchant's
+  // monthly cost. But refusing to quote a rate FOR A MERCHANT is a different
+  // claim from leaving the money out of the household total. Which vet, which
+  // mechanic and which registration falls in a given month is close to random,
+  // which is exactly why none of them reaches three dates, and a sum of many
+  // small independent events is far steadier than any one of them.
+  //
+  // scripts/backtest-irregular.js measures it rather than arguing it, over 36
+  // predictions of the following 60 days. Leaving them out, the projection came
+  // up short by 211 dollars at the median every time; putting them in, it
+  // misses by 23 in the other direction. Median error 223 down to 202, and the
+  // closer answer in 22 of the 36. Better on every statistic, and the one that
+  // matters most is the bias: a projection integrates its rate day after day,
+  // so noise cancels and bias compounds. A rate that is quietly short every
+  // single day is the worse of the two errors by a long way.
+  //
+  // What stops a genuine one off being amortised here is transactions.one_off,
+  // which is what it has always been for, not an accident of how many times
+  // that merchant happens to appear.
   const baseEverydayPerDayCents =
-    rate.recurring_essential_per_day_cents + allowancePerDayCents;
+    rate.essential_per_day_cents + allowancePerDayCents;
   const projectedEverydayPerDayCents = Math.max(
     baseEverydayPerDayCents - spendAdjustmentCentsPerDay,
     0,
@@ -332,11 +355,13 @@ export async function forecast({
     liquid_accounts: opening.accounts,
     everyday_rate: rate,
     projected_everyday_rate: {
-      basis: 'recurring essentials plus allowance',
+      basis: 'essentials plus allowance',
       per_day_cents: projectedEverydayPerDayCents,
       per_day: fromCents(projectedEverydayPerDayCents),
-      essential_per_day_cents: rate.recurring_essential_per_day_cents,
-      essential_per_day: rate.recurring_essential_per_day,
+      essential_per_day_cents: rate.essential_per_day_cents,
+      essential_per_day: rate.essential_per_day,
+      recurring_essential_per_day: rate.recurring_essential_per_day,
+      irregular_essential_per_day: rate.irregular_essential_per_day,
       discretionary_allowance_per_month: fromCents(allowanceCents),
     },
     spend_window_days: context.window,

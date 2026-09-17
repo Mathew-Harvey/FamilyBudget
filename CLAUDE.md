@@ -453,6 +453,30 @@ the tallest thing on it, because one 11,000 dollar month flattens the other
 eleven into stubs and those eleven are the reason for drawing it. Anything above
 the ceiling, a month or the allowance line, is drawn cut off and said in words.
 
+**A rate needs enough observations to be a rate, and that is a rule about
+merchants, not about the household.** The three date gate is right where it
+started: one payment divided by a window is not that merchant's monthly cost,
+and the Bendigo card at 25 a year was once reported at 25.37 a month. But
+essential spending below the gate was also dropped from the projection
+entirely, so the forecast described a household that never pays a vet, renews a
+registration or replaces anything, and reconcile named the hole rather than
+closing it. Which vet or which mechanic falls in a given month is close to
+random, which is exactly why none of them reaches three dates, and a sum of many
+small independent events is far steadier than any one of them.
+`scripts/backtest-irregular.js` measures it: without them the projection is
+short by 211 dollars every 60 days at the median, with them it misses by 23, and
+it is closer in 22 of 36 tests. Bias is what matters here, because a projection
+integrates its rate and noise cancels while bias compounds.
+
+**`transactions.one_off` is the only thing keeping a genuine one off out of the
+rate, and it always was.** While irregular essentials were dropped, a merchant
+seen once was shielded by accident, and a 30,000 dollar roof would have been
+shielded the same way for as long as nobody paid a roofer twice. Being unusual
+is not the same as being one off and the app must not decide that on anyone's
+behalf, so the Forecast page carries the list of large amounts at places barely
+seen with a control to mark them. That endpoint existed all along and the
+redesign dropped the page that used it, which left the defence unreachable.
+
 **There is one cash chart, `public/chart.js`.** Home and Forecast each drew the
 same projection their own way, which is two pictures of one thing free to
 disagree, and the copy on the Forecast page was still painting its axis labels

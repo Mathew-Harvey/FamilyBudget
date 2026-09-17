@@ -274,15 +274,22 @@ spendingRouter.get('/one-off-candidates', async (req, res, next) => {
   try {
     const days = Math.min(Math.max(Number(req.query.window) || 400, 30), 800);
     const { rows } = await query(
+      // Distinct dates, not rows, and below the three date gate the rest of the
+      // app uses to decide something is not enough to be a rate. Counting rows
+      // with a limit of four offered every quarterly bill as a one off: the
+      // power bill arrived four times in 400 days and the page invited someone
+      // to take their electricity out of the forecast. Anything on a detected
+      // schedule is out too, because a commitment is a positive claim that this
+      // happens again.
       `with seen as (
-         select merchant_key, count(*)::int as times
+         select merchant_key, count(distinct txn_date)::int as days_paid
            from budget_flows
           where counts and amount < 0 and txn_date > current_date - $1::integer
           group by merchant_key
        )
        select t.id, t.txn_date, -t.amount as amount, t.one_off,
               coalesce(m.display_name, t.merchant_key, 'Not described by the bank') as place,
-              coalesce(s.times, 1) as times_paid,
+              coalesce(s.days_paid, 1) as days_paid,
               cat.name as category
          from budget_flows t
          left join merchants m on m.match_key = t.merchant_key
@@ -291,7 +298,11 @@ spendingRouter.get('/one-off-candidates', async (req, res, next) => {
         where t.counts and t.amount < 0
           and t.txn_date > current_date - $1::integer
           and -t.amount >= 400
-          and coalesce(s.times, 1) <= 4
+          and coalesce(s.days_paid, 1) < 3
+          and not exists (
+            select 1 from commitments c
+             where c.active and c.cadence_days > 0 and c.match_key = t.merchant_key
+          )
         order by -t.amount desc
         limit 60`,
       [days],

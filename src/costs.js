@@ -288,6 +288,10 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     ),
     irregular_essential: fromCents(irregularEssentialCents),
     irregular_essential_transactions: irregularEssentialTransactions,
+    irregular_essential_per_day_cents: Math.round(irregularEssentialCents / effectiveDays),
+    irregular_essential_per_day: fromCents(
+      Math.round(irregularEssentialCents / effectiveDays),
+    ),
     discretionary: fromCents(discretionaryCents),
     discretionary_per_day_cents: Math.round(discretionaryCents / effectiveDays),
     discretionary_per_day: fromCents(Math.round(discretionaryCents / effectiveDays)),

@@ -132,7 +132,10 @@ async function load() {
     if (Number(data.everyday_rate.irregular_essential) > 0) {
       summary.append(el('div', {
         class: 'muted',
-        text: `${formatAmount(data.everyday_rate.irregular_essential)} of essential spending occurred at places seen on fewer than three dates, so it is not presented as a regular rate.`,
+        text: `${formatAmount(data.everyday_rate.irregular_essential)} of that is essential spending at places `
+          + 'seen on fewer than three dates: vets, registrations, repairs. No single one of them is '
+          + 'quoted a monthly rate, and the total is in the projection, because something in that shape '
+          + 'happens most months even though it is never the same thing twice.',
       }));
     }
     summary.append(
@@ -183,6 +186,57 @@ async function load() {
 
 document.getElementById('days').addEventListener('change', load);
 document.getElementById('buffer').addEventListener('change', load);
+// Large amounts at places barely seen. These are what a one off actually looks
+// like, and marking one is the only thing that keeps it out of the rate now
+// that being rare no longer does it by accident. The endpoint that finds them
+// has always existed; the page that used it did not survive the redesign.
+async function renderOneOffs() {
+  const box = document.getElementById('oneOffs');
+  try {
+    const { candidates } = await api('/api/spending/one-off-candidates');
+    box.innerHTML = '';
+    if (!candidates.length) {
+      box.append(el('p', { class: 'empty', text: 'Nothing large enough to ask about.' }));
+      return;
+    }
+    box.append(el('div', { class: 'card flush' }, candidates.slice(0, 12).map((row) => {
+      const mark = el('button', {
+        class: row.one_off ? 'small' : 'primary small',
+        text: row.one_off ? 'Put it back' : 'One off',
+      });
+      mark.addEventListener('click', async () => {
+        mark.disabled = true;
+        try {
+          await api('/api/spending/one-off', {
+            method: 'POST',
+            body: { ids: [row.id], one_off: !row.one_off },
+          });
+          await renderOneOffs();
+          await load();
+        } catch (err) {
+          showError(err.message);
+          mark.disabled = false;
+        }
+      });
+      return el('div', { class: 'item' }, [
+        el('span', { class: 'grow' }, [
+          el('span', { class: 't truncate', text: row.place }),
+          el('span', { class: 's', text: `${formatDate(row.txn_date)}, paid on ${row.days_paid} `
+            + `day${row.days_paid === 1 ? '' : 's'}${row.category ? `, ${row.category}` : ''}`
+            + `${row.one_off ? ', out of the rate' : ''}` }),
+        ]),
+        el('span', { class: 'right' }, [
+          el('span', { class: `amount ${row.one_off ? 'muted' : 'out'}`, text: formatAmount(row.amount) }),
+        ]),
+        mark,
+      ]);
+    })));
+  } catch (err) {
+    showError(err.message);
+  }
+}
+await renderOneOffs();
+
 document.getElementById('redetect').addEventListener('click', async () => {
   document.getElementById('detectState').textContent = 'Looking...';
   try {

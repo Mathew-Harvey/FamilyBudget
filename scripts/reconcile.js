@@ -273,16 +273,18 @@ const driftTotal = costs.commitments.reduce(
   (sum, row) => sum + Number(row.per_month) - ((actual.get(row.match_key) ?? 0) * 30.44) / WINDOW, 0);
 
 const historicalDiscretionary = costs.historical_discretionary_per_month_cents / 100;
-const irregularEssential = (Number(rate.irregular_essential) * 30.44) / rate.effective_days;
 const allowance = costs.discretionary_allowance_cents / 100;
+// Irregular essentials used to be subtracted here, because the plan left them
+// out and this had to say so. They are in the projection now, measured rather
+// than assumed away, so there is nothing left to name: the only differences
+// between what leaves the account and what the plan holds are the allowance
+// standing in for optional spending, and commitment timing.
 const explainedPlan = Number(flow.in_rate)
   - historicalDiscretionary
-  - irregularEssential
   + allowance
   + driftTotal;
 
 console.log(`        ${money(-historicalDiscretionary).padStart(14)}  optional history replaced by the allowance`);
-console.log(`        ${money(-irregularEssential).padStart(14)}  irregular essentials not turned into a rate`);
 console.log(`        ${money(allowance).padStart(14)}  discretionary allowance added`);
 console.log('\n        commitment timing and amount differences:');
 for (const row of drift) {

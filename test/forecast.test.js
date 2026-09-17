@@ -719,25 +719,64 @@ test('the forecast can use necessities plus a chosen discretionary allowance', a
   const rate = await everydaySpendRate(30, pool);
   assert.equal(rate.essential_per_day_cents, 2500);
   assert.equal(rate.recurring_essential_per_day_cents, 1500, 'a pet merchant can override its broad category');
-  assert.equal(rate.irregular_essential, '300.00', 'one medical visit is reported, not turned into a rate');
+  assert.equal(rate.irregular_essential, '300.00', 'the medical visit is still named on its own');
+  assert.equal(rate.irregular_essential_per_day_cents, 1000);
   assert.equal(rate.discretionary_per_day_cents, 2000);
   assert.equal(rate.per_day_cents, 4500, 'the current-real-life rate still contains all actual spending');
 
+  // Both kinds of essential. The three date gate decides whether a MERCHANT is
+  // quoted a rate, not whether the household's money left the account.
   const essentialsOnly = await forecast({
     days: 30, window: 30, client: pool, discretionaryCentsPerMonth: 0,
   });
-  assert.equal(essentialsOnly.projected_everyday_rate.per_day_cents, 1500);
+  assert.equal(essentialsOnly.projected_everyday_rate.per_day_cents, 2500);
 
   const withAllowance = await forecast({
     days: 30, window: 30, client: pool, discretionaryCentsPerMonth: 30440,
   });
-  assert.equal(withAllowance.projected_everyday_rate.per_day_cents, 2500);
+  assert.equal(withAllowance.projected_everyday_rate.per_day_cents, 3500);
 
   await pool.query(
     "insert into settings (key, value) values ('forecast_discretionary_monthly', '304.40')",
   );
   const householdPlan = await forecast({ days: 30, window: 30, client: pool });
-  assert.equal(householdPlan.projected_everyday_rate.per_day_cents, 2500);
+  assert.equal(householdPlan.projected_everyday_rate.per_day_cents, 3500);
+});
+
+test('a one off essential is kept out of the rate by being marked, not by being rare', async () => {
+  // This is the defence that now carries the weight. While irregular essentials
+  // were dropped from the projection, a merchant appearing once was shielded by
+  // accident, and a 30,000 dollar roof would have been shielded the same way
+  // for as long as nobody paid a roofer twice. transactions.one_off is the
+  // designed answer and always was: real spending, in every total, out of
+  // every rate. Being unusual is not the same as being one off, and the app
+  // should not confuse the two on anybody's behalf.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 1000000);
+  const { rows: [essential] } = await pool.query(
+    "insert into categories (name, kind, lean_tier) values ('Home','expense','keep') returning id",
+  );
+  for (let i = 0; i < 30; i++) {
+    await addTxn(pool, account.id, {
+      date: daysAgo(i), cents: -1000, description: `GROCERIES ${i}`,
+      categoryId: essential.id, merchantKey: 'GROCERIES',
+    });
+  }
+  const roof = await addTxn(pool, account.id, {
+    date: daysAgo(5), cents: -3000000, description: 'ROOF REPLACEMENT',
+    categoryId: essential.id, merchantKey: 'ROOF REPLACEMENT',
+  });
+
+  const before = await everydaySpendRate(30, pool);
+  assert.equal(before.irregular_essential, '30000.00');
+  assert.equal(before.essential_per_day_cents, 101000, 'in the rate until somebody says otherwise');
+
+  await pool.query('update transactions set one_off = true where id = $1', [roof]);
+  const after = await everydaySpendRate(30, pool);
+  assert.equal(after.irregular_essential, '0.00');
+  assert.equal(after.essential_per_day_cents, 1000, 'out of the rate, and still in the history');
+  assert.equal(after.not_expected_again, '30000.00', 'named, not forgotten');
 });
 
 test('a debt repayment remains essential even when its category is unknown', async () => {
