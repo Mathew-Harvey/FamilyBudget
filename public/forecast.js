@@ -127,12 +127,18 @@ async function load() {
       params.set('exclude_commitments', [...excludedLuxuryCommitments].join(','));
     }
     const data = await api(`/api/forecast?${params}`);
-    const allowance = data.luxury.allowance_per_month;
-    const allowanceInput = document.getElementById('discretionaryAmount');
-    const allowanceEnabled = Number(allowance) > 0;
-    document.getElementById('includeDiscretionary').checked = allowanceEnabled;
-    allowanceInput.disabled = !allowanceEnabled;
-    if (document.activeElement !== allowanceInput) allowanceInput.value = allowance;
+    // Shown here, set on its own page. Two controls for one number is two
+    // places for it to be wrong, and unticking the box that used to live here
+    // wrote a deliberate zero, which is the one answer nobody means.
+    const line = document.getElementById('allowanceLine');
+    line.innerHTML = '';
+    line.append(
+      el('span', { class: 'grow' }, [
+        el('span', { class: 't', text: `${formatAmount(data.luxury.allowance_per_month)} a month` }),
+        el('span', { class: 's', text: 'the allowance this projection is built on' }),
+      ]),
+      el('a', { class: 'btn small', href: '/allowance', text: 'Change it' }),
+    );
     renderLuxury(data.luxury);
 
     const summary = document.getElementById('summary');
@@ -223,36 +229,6 @@ async function load() {
 
 document.getElementById('days').addEventListener('change', load);
 document.getElementById('buffer').addEventListener('change', load);
-document.getElementById('includeDiscretionary').addEventListener('change', async (event) => {
-  const input = document.getElementById('discretionaryAmount');
-  input.disabled = !event.target.checked;
-  if (!event.target.checked) {
-    try {
-      await api('/api/forecast/policy', {
-        method: 'POST',
-        body: { discretionary_monthly: '0.00' },
-      });
-      await load();
-      showError('');
-    } catch (err) {
-      showError(err.message);
-    }
-  } else {
-    input.focus();
-  }
-});
-document.getElementById('discretionaryAmount').addEventListener('change', async (event) => {
-  try {
-    await api('/api/forecast/policy', {
-      method: 'POST',
-      body: { discretionary_monthly: event.target.value || '0.00' },
-    });
-    await load();
-    showError('');
-  } catch (err) {
-    showError(err.message);
-  }
-});
 document.getElementById('redetect').addEventListener('click', async () => {
   document.getElementById('detectState').textContent = 'Looking...';
   try {

@@ -124,7 +124,7 @@ function headline(position) {
         // is a series, so income is the quiet reference and the coloured bar
         // below is the subject. The comparison is length, which needs no hue.
         el('div', { class: 'split', style: `width:${width(inCents)}` }, [
-          el('i', { style: 'flex:1;background:var(--axis)' }),
+          el('i', { style: 'flex:1;background:var(--neutral)' }),
         ]),
         el('span', { class: 'amount', text: money(position.in_per_month) }),
 
@@ -144,20 +144,24 @@ function headline(position) {
     );
   }
 
-  // What the household plan leaves out, said here rather than only on the
-  // Forecast page. "Out" is the plan's figure: recurring essentials, the
-  // allowance and the commitments. Optional day to day spending is replaced by
-  // the allowance, so with the allowance still at zero the difference is every
-  // dollar of it, and a headline that does not mention that is describing a
-  // household nobody lives in.
+  // Where the plan and the spending disagree, said on the page that leads with
+  // the plan's own figure.
+  //
+  // "Out" is recurring essentials, the allowance and the commitments, so
+  // optional day to day spending enters it only through the allowance. An
+  // allowance nobody has chosen now follows what that spending has actually
+  // been, which makes this silent, as it should be: there is nothing to warn
+  // about when the plan and the household agree. It fires when someone has set
+  // a figure below what they are spending, which is an intention rather than a
+  // mistake, and worth keeping in view for exactly that reason.
   const excluded = Number(position.optional_history_excluded ?? 0);
   if (excluded > 0) {
     box.after(el('div', { class: 'nudge' }, [
-      el('h3', { text: 'One thing needs deciding' }),
+      el('h3', { text: 'The plan assumes less than lately' }),
       el('p', { text:
-        `The plan counts ${money(position.discretionary_per_month)} a month of optional spending. `
-        + `Lately it has been ${money(position.optional_history_per_month)}.` }),
-      el('a', { class: 'btn', href: '/forecast', text: 'Pick a number', style: 'margin-top:11px' }),
+        `It allows ${money(position.discretionary_per_month)} a month for things you do not have `
+        + `to buy. The last few months have run at ${money(position.optional_history_per_month)}.` }),
+      el('a', { class: 'btn', href: '/allowance', text: 'Look at it', style: 'margin-top:11px' }),
     ]));
   }
 

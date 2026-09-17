@@ -171,10 +171,38 @@ much on its own".
 ## The order of the page
 
 Today, Forecast, Lasting, alerts and analysis all use the same household plan.
-That plan is recurring essentials, the saved discretionary allowance, active
+That plan is recurring essentials, the discretionary allowance, active
 commitments and configured income. Historical optional spending remains useful
-evidence on the Spending and Forecast pages, but it is not a second hidden
+evidence on the Spending and allowance pages, but it is not a second hidden
 forecast input.
+
+The allowance is the one input, and for a long time it started at zero. That is
+not a neutral default, it is a claim: that the household buys nothing it does not
+have to. On this one it was wrong by $3,825 a month, and every page downstream
+inherited the error while reporting the resulting surplus as money. Nothing about
+the page said so, because a figure nobody has entered looks exactly like a figure
+somebody chose.
+
+So the default is now what that spending has actually been. The rule is the pay
+cycle's rule: history is the suggestion, the figure someone sets always wins,
+and a saved zero is honoured because a person saying zero is a decision. The
+honest default errs toward projecting more spending rather than less, which
+shortens the runway rather than flattering it.
+
+`/allowance` is the only screen in the app that asks for a decision rather than
+reporting one, and it is built accordingly. It leads with twelve months as
+columns and draws the allowance across them as a line, because one number cannot
+say whether $3,200 a month is every month or the average of a quiet one and a bad
+one, and that is the difference between a figure someone can argue with and one
+they can only accept. Whether the line sits above or below the life you have
+actually had is the whole decision, and it moves as you pick. The two anchors
+offered beside it, a usual month and the quietest one, are months the household
+has already lived: an allowance that has been met before is a different
+proposition from one that has not.
+
+What a choice would do is worked out by the real projection and printed as it
+comes back, never recomputed on the page. A trial says it is a trial: a figure
+nothing has been saved at is never labelled as one somebody chose.
 
 Ordering is a behavioural decision too. The Today page is arranged so that
 closing it after the first screen still leaves you with the thing that matters:

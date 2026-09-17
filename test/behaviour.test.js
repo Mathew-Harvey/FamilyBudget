@@ -311,13 +311,8 @@ test('a monthly debt is rated over the window, not over the payments the window 
   assert.equal(row.per_year, '29400.00');
 });
 
-test('the position says what the plan leaves out, not just what it includes', async () => {
-  // "Out" is the household plan: recurring essentials, the allowance and the
-  // commitments. Optional day to day spending is replaced by the allowance, so
-  // while that allowance is still zero the difference is every dollar of it. A
-  // headline that reports the plan's "out" without saying so is describing a
-  // household nobody lives in.
-  const pool = await getTestPool();
+// A household with optional spending and nothing else configured about it.
+async function householdWithOptionalSpending(pool) {
   const everyday = await makeAccount(pool, { masked_number: 'xxxx1111', is_liquid: true });
   await pool.query(
     "insert into balances (account_id, balance_date, balance) values ($1, current_date, '5000.00')",
@@ -330,12 +325,58 @@ test('the position says what the plan leaves out, not just what it includes', as
   for (let i = 0; i < 60; i += 2) {
     await addTxn(pool, everyday.id, { date: daysAgo(i), cents: -10000, description: `CAFE ${i}`, merchantKey: `CAFE${i}` });
   }
+  return everyday;
+}
+
+test('an allowance nobody has chosen is what the household actually spends', async () => {
+  // The setting used to be seeded at 0.00, so every household started out
+  // forecast as buying nothing it did not have to. Nobody chose that, and the
+  // plan built on it described a household nobody lives in: on the real one it
+  // hid 3,825 a month and reported the resulting surplus as money.
+  const pool = await getTestPool();
+  await householdWithOptionalSpending(pool);
 
   const here = await position({ client: pool });
   assert.ok(
     Number(here.optional_history_per_month) > 0,
     'the optional spending the plan set aside has to be reported somewhere',
   );
+  assert.equal(here.discretionary_per_month, here.optional_history_per_month);
+  // Nothing to warn about: the plan and the household agree.
+  assert.equal(here.optional_history_excluded, '0.00');
+});
+
+test('the position says what the plan leaves out, not just what it includes', async () => {
+  // "Out" is the household plan: recurring essentials, the allowance and the
+  // commitments, so optional spending enters it only through the allowance.
+  // Someone who sets a figure below what they are spending is stating an
+  // intention, and a headline that reports the plan's "out" without saying how
+  // far it sits from the spending is not one anybody can check.
+  const pool = await getTestPool();
+  await householdWithOptionalSpending(pool);
+  await pool.query(
+    "insert into settings (key, value) values ('forecast_discretionary_monthly', '100.00')",
+  );
+
+  const here = await position({ client: pool });
+  assert.equal(here.discretionary_per_month, '100.00');
+  assert.equal(
+    numericToCents(here.optional_history_excluded),
+    numericToCents(here.optional_history_per_month) - 10000,
+  );
+});
+
+test('an allowance somebody set to zero stays zero', async () => {
+  // Following the spending is the answer to "nobody has said", not an override.
+  // A household that means zero says so, and the row saying so is the whole
+  // difference between a decision and a default.
+  const pool = await getTestPool();
+  await householdWithOptionalSpending(pool);
+  await pool.query(
+    "insert into settings (key, value) values ('forecast_discretionary_monthly', '0.00')",
+  );
+
+  const here = await position({ client: pool });
   assert.equal(here.discretionary_per_month, '0.00');
   assert.equal(here.optional_history_excluded, here.optional_history_per_month);
 });

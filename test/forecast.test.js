@@ -5,7 +5,7 @@ import { getTestPool, resetDatabase, closeTestPool, makeAccount } from './helper
 import { assessSchedule, matchKeyFor, detectCommitments, median, medianCents, scheduleCommitments } from '../src/commitments.js';
 import { forecast, liquidBalance, everydaySpendRate } from '../src/forecast.js';
 import { setPayCycle, ensurePayPeriods } from '../src/buckets.js';
-import { coveredDays, effectiveWindowDays } from '../src/costs.js';
+import { coveredDays, effectiveWindowDays, buildCostModel, optionalByMonth } from '../src/costs.js';
 import { evaluateAlerts, runAlerts, updateSettings } from '../src/alerts.js';
 import { sendEmail } from '../src/email.js';
 import { centsToNumeric, numericToCents } from '../src/money.js';
@@ -892,4 +892,86 @@ test('a hand entered commitment leaves its own spending out of the everyday rate
   );
   // And the total is untouched, because nothing about the spending changed.
   assert.equal(before.total, after.total);
+});
+
+// A date this many whole months back, on the first of that month, so the test
+// does not depend on which day of the month it runs.
+function firstOfMonthsAgo(back) {
+  const [year, month] = today().slice(0, 7).split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 - back, 1));
+  return shifted.toISOString().slice(0, 10);
+}
+
+test('optional spending is reported month by month, with the running one marked', async () => {
+  // The allowance is one number, and one number cannot say whether it is every
+  // month or the average of a quiet one and a bad one. Nor can it be compared
+  // against a month that is only half over: the current month is always low and
+  // holding it up as evidence of a quiet one is how a budget gets set to a
+  // figure nobody has ever lived on.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 500000);
+
+  // Three whole months, and something in this one.
+  await addTxn(pool, account.id, { date: firstOfMonthsAgo(3), cents: -10000, description: 'SHOP A' });
+  await addTxn(pool, account.id, { date: firstOfMonthsAgo(2), cents: -25000, description: 'SHOP B' });
+  await addTxn(pool, account.id, { date: today(), cents: -3000, description: 'SHOP C' });
+
+  const costs = await buildCostModel({ window: 120, client: pool });
+  const months = await optionalByMonth(costs, { months: 4, client: pool });
+
+  assert.equal(months.length, 4, 'every month in the span, including the empty one');
+  assert.deepEqual(months.map((row) => row.spent), ['100.00', '250.00', '0.00', '30.00']);
+  // The first is partial too: history starts inside it, so it is low for a
+  // reason that has nothing to do with what the household spent.
+  assert.deepEqual(months.map((row) => row.complete), [false, true, true, false]);
+  assert.equal(months.at(-1).month, today().slice(0, 7));
+});
+
+test('a month is only whole when there was a whole month of history behind it', async () => {
+  // The earliest month is whenever the bank's history happens to start, so it
+  // is low for a reason that has nothing to do with the household. Offering it
+  // as "the quietest month" would be offering a gap in the data as an example
+  // to live up to.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 500000);
+  await addTxn(pool, account.id, { date: firstOfMonthsAgo(2), cents: -4000, description: 'SHOP A' });
+  await addTxn(pool, account.id, { date: firstOfMonthsAgo(1), cents: -30000, description: 'SHOP B' });
+
+  const costs = await buildCostModel({ window: 120, client: pool });
+  const months = await optionalByMonth(costs, { months: 3, client: pool });
+
+  assert.equal(months[0].complete, false, 'the month the history starts in is a partial month');
+  assert.equal(months[1].complete, true);
+  assert.equal(months[2].complete, false, 'and so is the one still running');
+});
+
+test('a commitment is not counted again as optional month by month', async () => {
+  // Same exclusion as the rate, and it has to be the same one: a chart of
+  // "optional spending" that included the subscriptions sitting in the plan
+  // would sit under a headline figure that did not, and the two would disagree
+  // by exactly the subscriptions.
+  const pool = await getTestPool();
+  const account = await makeAccount(pool, { is_liquid: true });
+  await setBalance(pool, account.id, 500000);
+  for (let i = 0; i < 3; i++) {
+    await addTxn(pool, account.id, { date: firstOfMonthsAgo(i + 1), cents: -2000, description: 'NETFLIX' });
+    await addTxn(pool, account.id, { date: firstOfMonthsAgo(i + 1), cents: -5000, description: `SHOP ${i}` });
+  }
+
+  const before = await optionalByMonth(
+    await buildCostModel({ window: 120, client: pool }), { months: 4, client: pool },
+  );
+  await pool.query(
+    `insert into commitments (match_key, label, typical_amount, cadence_days, next_due, source, regularity)
+     values ($1, 'NETFLIX', -20.00, 30, current_date + 7, 'manual', 1)`,
+    [matchKeyFor('NETFLIX')],
+  );
+  const after = await optionalByMonth(
+    await buildCostModel({ window: 120, client: pool }), { months: 4, client: pool },
+  );
+
+  assert.deepEqual(before.map((row) => row.spent), ['70.00', '70.00', '70.00', '0.00']);
+  assert.deepEqual(after.map((row) => row.spent), ['50.00', '50.00', '50.00', '0.00']);
 });

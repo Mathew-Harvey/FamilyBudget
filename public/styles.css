@@ -18,6 +18,11 @@
   --muted:     #898781;
   --line:      #e1e0d9;
   --axis:      #c3c2b7;
+  /* A data mark with no meaning of its own: the "in" bar Today compares against,
+     a month that is not finished. A step darker than the axis hairline, because
+     at 1.75 to 1 that hairline is chrome and disappears when it has to carry a
+     shape, and still recessive enough not to compete with the coloured series. */
+  --neutral:   #9e9c8f;
   --ring:      rgba(11, 11, 11, 0.09);
   --shadow:    0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.05);
 
@@ -29,7 +34,12 @@
   --tier-keep: #184f95;
   --tier-trim: #2a78d6;
   --tier-cut:  #86b6ef;
-  --tier-ink:  #ffffff;
+  /* Ink per step, not per theme. One value for all three put white on the pale
+     step at 2.1 to 1, which is unreadable, and that step is every optional
+     merchant on the Spending page. The pale end always takes dark ink. */
+  --ink-keep:  #ffffff;
+  --ink-trim:  #ffffff;
+  --ink-cut:   #0b0b0b;
 
   --good:      #0ca30c;
   --in:        #006300;
@@ -49,6 +59,7 @@
   --muted:     #898781;
   --line:      #2c2c2a;
   --axis:      #4a4a46;
+  --neutral:   #5e5e57;
   --ring:      rgba(255, 255, 255, 0.09);
   --shadow:    none;
 
@@ -58,7 +69,10 @@
   --tier-keep: #2a78d6;
   --tier-trim: #5598e7;
   --tier-cut:  #cde2fb;
-  --tier-ink:  #0b0b0b;
+  /* Every step is a mid to pale blue here, so all three take dark ink. */
+  --ink-keep:  #0b0b0b;
+  --ink-trim:  #0b0b0b;
+  --ink-cut:   #0b0b0b;
 
   --good:      #0ca30c;
   --in:        #0ca30c;
@@ -151,7 +165,7 @@ h3 { font-size: 1.02rem; }
 
 .figure {
   font-size: 2.6rem; font-weight: 680; letter-spacing: -0.034em; line-height: 1.06;
-  font-variant-numeric: tabular-nums; margin: 10px 0 2px;
+  margin: 10px 0 2px;
 }
 .figure.date { letter-spacing: -0.03em; }
 .delta { font-size: 0.95rem; font-weight: 620; font-variant-numeric: tabular-nums; }
@@ -181,12 +195,12 @@ h3 { font-size: 1.02rem; }
    glyph says less than the merchant's own initials. */
 .av {
   width: 38px; height: 38px; border-radius: 12px; flex: none;
-  display: grid; place-items: center; color: var(--tier-ink);
+  display: grid; place-items: center;
   font-size: 0.8rem; font-weight: 700; letter-spacing: -0.02em;
 }
-.av.keep { background: var(--tier-keep); }
-.av.trim { background: var(--tier-trim); }
-.av.cut  { background: var(--tier-cut); }
+.av.keep { background: var(--tier-keep); color: var(--ink-keep); }
+.av.trim { background: var(--tier-trim); color: var(--ink-trim); }
+.av.cut  { background: var(--tier-cut);  color: var(--ink-cut); }
 
 /* --- money --------------------------------------------------------------- */
 .amount { font-variant-numeric: tabular-nums; font-weight: 620; white-space: nowrap; }
@@ -299,3 +313,80 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 .state { align-items: flex-start; }
 .state .dot { margin-top: 0.42em; }
 .state > span:last-child { display: block; }
+
+/* --- months as columns --------------------------------------------------- */
+/* The months you have actually had, and the line you are drawing across them.
+   One series, so one colour and no legend box. The whole decision is whether
+   that line sits above or below the bars, which is a position and not a
+   paragraph, and it moves as you pick. */
+.months .plot {
+  position: relative; display: flex; align-items: flex-end;
+  gap: 3px; height: 124px;
+}
+.months .band {
+  flex: 1; height: 100%; min-width: 0;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+}
+/* Capped rather than filling the slot, so the leftover is air. Square at the
+   baseline, rounded at the data end. */
+.months .band i {
+  display: block; width: 100%; max-width: 24px; min-height: 3px;
+  background: var(--accent); border-radius: 4px 4px 0 0;
+}
+/* This month is still running, so it is not comparable to a whole one. Neutral
+   rather than a fourth blue: it is context, not part of the comparison. */
+.months .band i.part { background: var(--neutral); }
+/* A month taller than the chart. Hatched at the top because the bar is cut off,
+   not because the month is a different kind of thing, and its figure is printed
+   beside it since the length can no longer carry it. */
+.months .band i.over {
+  background:
+    repeating-linear-gradient(135deg, var(--accent) 0 4px, var(--surface) 4px 8px)
+      top / 100% 15px no-repeat,
+    var(--accent);
+}
+/* Solid, one shade off the surface. Dashed is reserved for the threshold, which
+   is what dashing actually reads as. */
+.months .base { border-top: 1px solid var(--line); margin-top: -1px; }
+.months .line {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 2px dashed var(--ink); pointer-events: none;
+}
+/* An allowance higher than any month the household has had. Pinning the line to
+   the top without saying so would show it as barely above them, so the top of
+   the scale is hatched: the chart carries on past here. */
+.months .plot.clipped::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 9px;
+  background: repeating-linear-gradient(135deg,
+    var(--line) 0 4px, var(--surface) 4px 8px);
+}
+.months .line span {
+  position: absolute; right: 0; top: -1.5em; font-size: 0.7rem; font-weight: 640;
+  color: var(--ink); background: var(--surface); padding: 0 5px; white-space: nowrap;
+}
+.months .over-label {
+  position: absolute; font-size: 0.7rem; font-weight: 640; color: var(--ink-2);
+  background: var(--surface); padding: 0 4px; white-space: nowrap; transform: translateX(-50%);
+}
+.months .ticks { display: flex; gap: 3px; margin-top: 6px; }
+.months .ticks span {
+  flex: 1; text-align: center; font-size: 0.68rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; min-width: 0;
+}
+.months .ticks span.mark { color: var(--ink-2); font-weight: 640; }
+
+/* --- a row of choices ---------------------------------------------------- */
+/* Three anchors and a box to type in. Each one is a figure the household has
+   actually lived, so the choice is between measured things rather than between
+   a number and a hope. */
+.picks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.picks button {
+  display: block; width: 100%; text-align: left; padding: 11px 13px;
+  border-radius: 13px; font-weight: 500;
+}
+.picks button[aria-current] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.picks button .t { font-size: 1.02rem; font-weight: 660; }
+.picks button .s { margin-top: 2px; }
+@media (max-width: 520px) {
+  .picks { grid-template-columns: 1fr 1fr; }
+}

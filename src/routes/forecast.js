@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments, matchKeyFor } from '../commitments.js';
+import { optionalByMonth } from '../costs.js';
+import { position } from '../behaviour.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
 export const forecastRouter = Router();
@@ -73,7 +75,116 @@ forecastRouter.get('/', async (req, res, next) => {
   }
 });
 
+// The allowance, and the evidence for choosing one.
+//
+// Everything here is read through one cost model and one projection, so the
+// months under the chart, the figure the plan is using and the consequence of
+// changing it cannot disagree with each other or with Today.
+forecastRouter.get('/allowance', async (req, res, next) => {
+  try {
+    const window = Math.min(Math.max(Number(req.query.window) || DEFAULT_SPEND_WINDOW_DAYS, 14), 180);
+    const months = Math.min(Math.max(Number(req.query.months) || 12, 2), 24);
+
+    let candidateCents;
+    if (req.query.at !== undefined) {
+      try {
+        candidateCents = numericToCents(String(req.query.at));
+      } catch {
+        return res.status(400).json({ error: 'That is not a dollar amount' });
+      }
+      if (candidateCents < 0) {
+        return res.status(400).json({ error: 'An allowance cannot be negative' });
+      }
+    }
+
+    const forecastContext = await buildForecastContext({ window });
+    const costs = forecastContext.costs;
+
+    // What this choice does, worked out by the real projection rather than by
+    // arithmetic on the page. Two numbers that disagree are worse than one.
+    const at = async (cents) => {
+      const projection = await forecast({
+        days: 400, window, forecastContext, discretionaryCentsPerMonth: cents,
+      });
+      const view = await position({ window, forecastContext, projection });
+      return {
+        per_month: centsToNumeric(cents),
+        out_per_month: view.out_per_month,
+        gap_per_month: view.gap_per_month,
+        going_backwards: view.going_backwards,
+        runway_date: view.runway_date,
+        runway_date_friendly: view.runway_date_friendly,
+      };
+    };
+
+    const history = await optionalByMonth(costs, { months });
+    const whole = history.filter((row) => row.complete);
+    // Only from whole months, and only when there are enough of them to be a
+    // comparison rather than a coincidence. The quietest month is worth showing
+    // because it is a figure the household has already lived on: an allowance
+    // that has been met before is a different proposition from one that has not.
+    const quietest = whole.length >= 3
+      ? whole.reduce((best, row) => (row.spent_cents < best.spent_cents ? row : best))
+      : null;
+
+    // The middle month, in integer cents, picking a month that happened rather
+    // than averaging two. The rate above it is a mean over a window and one big
+    // month drags it a long way: this household spends about 450 a month on
+    // things it does not have to buy, and one 11,000 dollar month inside the
+    // window reports 3,239. Both are true and they answer different questions,
+    // so both are offered and the chart says which is which.
+    const sorted = [...whole].sort((a, b) => a.spent_cents - b.spent_cents);
+    const typicalMonth = sorted.length >= 3
+      ? sorted[Math.floor((sorted.length - 1) / 2)]
+      : null;
+
+    // A month that is nothing like the others is usually one purchase, and the
+    // fix for that is to mark the purchase as a one off, not to pick a lower
+    // allowance and hope. Named rather than quietly smoothed away.
+    //
+    // All of them, because the chart scales to the tallest ordinary month and
+    // has to know which months are not ordinary. One list, so the scale and the
+    // callout cannot disagree about that.
+    const outliers = typicalMonth
+      ? whole.filter((row) => row.spent_cents > typicalMonth.spent_cents * 3)
+        .sort((a, b) => b.spent_cents - a.spent_cents)
+      : [];
+
+    res.json({
+      allowance: {
+        per_month: centsToNumeric(costs.discretionary_allowance_cents),
+        chosen: costs.discretionary_allowance_chosen,
+      },
+      typical: {
+        per_month: centsToNumeric(costs.historical_discretionary_per_month_cents),
+        window_days: costs.window,
+        effective_days: costs.effective_days,
+      },
+      quietest,
+      typical_month: typicalMonth,
+      outliers,
+      outlier: outliers[0] ?? null,
+      months: history,
+      now: await at(costs.discretionary_allowance_cents),
+      preview: candidateCents === undefined ? null : await at(candidateCents),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 forecastRouter.post('/policy', async (req, res, next) => {
+  // Choosing nothing is a real answer, and it is not the same as choosing zero.
+  // Clearing the setting hands the plan back to what the spending actually is.
+  if (req.body?.follow_history === true) {
+    try {
+      await query("delete from settings where key = 'forecast_discretionary_monthly'");
+      return res.json({ discretionary_monthly: null, chosen: false });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
   let cents;
   try {
     cents = numericToCents(String(req.body?.discretionary_monthly ?? ''));
@@ -91,7 +202,7 @@ forecastRouter.post('/policy', async (req, res, next) => {
        on conflict (key) do update set value = excluded.value, updated_at = now()`,
       [value],
     );
-    res.json({ discretionary_monthly: value });
+    res.json({ discretionary_monthly: value, chosen: true });
   } catch (err) {
     next(err);
   }

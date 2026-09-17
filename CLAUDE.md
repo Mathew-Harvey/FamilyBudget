@@ -425,6 +425,41 @@ to Mat or to Skye by name, and the page never implies that cancelling a few
 subscriptions closes a gap it does not close. Read that document before changing
 anything on that page.
 
+**"Nobody has chosen" and "zero" are not the same claim.** Migration 027 seeded
+the discretionary allowance at 0.00, so every household began forecast as buying
+nothing it did not have to. On this one that quietly took 3,825 a month out of
+the projection, and Today, the plan, the runway and the alerts were all built on
+it. Absence of the row now means "follow what optional spending has actually
+been", which is the household we can see; a stored value still wins, zero
+included, because a person saying zero is a decision and a seed is not. This is
+the pay cycle rule in a second costume: history is the suggestion, the figure
+someone sets always wins. `buildCostModel` resolves it and exposes
+`discretionary_allowance_chosen` so a page can say which it is looking at,
+and an unreadable value counts as no decision rather than as zero.
+
+**The allowance is set in one place, `/allowance`, and nowhere else.** The
+Forecast page used to carry a checkbox beside a number, and unticking it wrote a
+deliberate 0.00, which is the one answer nobody means. It shows the figure and
+links across now. Two controls for one number is two places for it to be wrong.
+
+**One number cannot be argued with; twelve months can.** `optionalByMonth` is the
+evidence behind the allowance, on the same filter and the same commitment
+exclusion as the rate, taking the commitment keys from a model already built so
+there is no second definition of "optional". A month is only whole when there was
+a whole month of history behind it: the current one is always part way through
+and the earliest is wherever the bank's history starts, so neither can be held up
+as the quietest month. The chart scales to the tallest ordinary month rather than
+the tallest thing on it, because one 11,000 dollar month flattens the other
+eleven into stubs and those eleven are the reason for drawing it. Anything above
+the ceiling, a month or the allowance line, is drawn cut off and said in words.
+
+**A tier ramp needs ink per step, not per theme.** `--tier-cut` is pale by design
+and carried white text at 2.1 to 1, which is unreadable, on every optional
+merchant on the Spending page. `--ink-keep`, `--ink-trim` and `--ink-cut` are
+separate for that reason. The same class of bug put a data mark at 1.75 to 1:
+`--axis` is a hairline and disappears when asked to carry a shape, so a neutral
+series mark uses `--neutral`.
+
 **There is one household plan.** Forecast, Today, Lasting, alerts and analysis
 all use the same loaded model: recurring keep and trim costs, the saved
 discretionary allowance, active commitments and configured income. Historical

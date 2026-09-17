@@ -14,11 +14,19 @@ const DAY_MS = 86_400_000;
 const toCents = (value) => numericToCents(value ?? 0);
 const fromCents = centsToNumeric;
 
-function allowanceFrom(value) {
+// The stored allowance, or null when nobody has chosen one.
+//
+// A missing row and an unreadable one are the same answer: no decision. That
+// matters because the decision and the number zero used to be the same thing.
+// The setting was seeded at 0.00, so a household that had never opened the
+// page was forecast as spending nothing at all on anything optional, which on
+// this one hid 3,825 a month. Nobody chose that and nobody could see it.
+function storedAllowance(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
   try {
-    return Math.max(toCents(value ?? '0'), 0);
+    return Math.max(toCents(value), 0);
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -296,10 +304,26 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     })
     .sort((a, b) => b.per_month_cents - a.per_month_cents);
 
+  const historicalDiscretionaryCents = centsPerMonth(discretionaryCents, effectiveDays);
+  // Until someone chooses, the plan assumes the household it can see.
+  //
+  // History is the suggestion and the figure someone sets always wins, which is
+  // how the pay cycle already works and for the same reason: only a person
+  // knows whether last quarter is a guide to next one. What changed is the
+  // answer when nobody has said. Zero was never anybody's intention, and a
+  // forecast built on it describes a household that buys no coffee, no haircut
+  // and no present, then reports the resulting surplus as though it were money.
+  const chosenCents = storedAllowance(context.allowance);
+
   return {
     window,
     effective_days: effectiveDays,
-    discretionary_allowance_cents: allowanceFrom(context.allowance),
+    earliest_transaction: context.earliest ? String(context.earliest).slice(0, 10) : null,
+    discretionary_allowance_cents: chosenCents ?? historicalDiscretionaryCents,
+    // Whether that figure is a decision or the default standing in for one. The
+    // plan is the same either way; the pages that ask for the decision need to
+    // know which they are looking at.
+    discretionary_allowance_chosen: chosenCents !== null,
     rate,
     commitments,
     // The ones a scenario is allowed to turn off. Three pages were each
@@ -308,9 +332,69 @@ export async function buildCostModel({ window, client = { query } } = {}) {
     optional_commitments: commitments.filter((row) => row.tier === 'cut'),
     variable,
     debt_keys: debtKeys,
-    historical_discretionary_per_month_cents: centsPerMonth(
-      discretionaryCents,
-      effectiveDays,
-    ),
+    historical_discretionary_per_month_cents: historicalDiscretionaryCents,
   };
+}
+
+// What optional day to day spending actually came to, month by month.
+//
+// The allowance is one number, and one number cannot say whether 3,200 a month
+// is what every month looks like or the average of a quiet one and a bad one.
+// That is the difference between a figure someone can argue with and a figure
+// they can only accept, and this is the one screen in the app that asks for a
+// decision rather than reporting one.
+//
+// Same filter and the same commitment exclusion as the rate above, with the
+// commitment keys taken from a model that has already been built rather than
+// worked out again. Two definitions of "optional" would put a chart under a
+// number that disagreed with it.
+export async function optionalByMonth(costs, { months = 12, client = { query } } = {}) {
+  if (!Number.isInteger(months) || months < 1) {
+    throw new TypeError('months must be a positive integer');
+  }
+  const { rows } = await client.query(
+    `select to_char(t.txn_date, 'YYYY-MM') as month,
+            coalesce(t.display_description, t.description) as label,
+            -t.amount as spent
+       from budget_flows t
+       left join merchants m on m.match_key = t.merchant_key
+       left join categories cat on cat.id = t.category_id
+      where t.counts and t.amount < 0
+        and not t.one_off and not t.no_longer_expected
+        and (${TIER_SQL}) = 'cut'
+        and t.txn_date >= (date_trunc('month', current_date)
+                            - make_interval(months => $1::integer - 1))::date
+        and t.txn_date <= current_date`,
+    [months],
+  );
+
+  const commitmentKeys = new Set(costs.commitments.map((row) => row.match_key));
+  const totals = new Map();
+  for (const row of rows) {
+    if (commitmentKeys.has(matchKeyFor(row.label))) continue;
+    totals.set(row.month, (totals.get(row.month) ?? 0) + toCents(row.spent));
+  }
+
+  // Every month in the span, including the ones nothing was spent in, because a
+  // chart that silently drops a month is a chart that lies about the trend.
+  const thisMonth = householdToday().slice(0, 7);
+  const firstMonth = costs.earliest_transaction?.slice(0, 7) ?? null;
+  const out = [];
+  let [year, month] = thisMonth.split('-').map(Number);
+  for (let back = 0; back < months; back++) {
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    out.unshift({
+      month: key,
+      spent: fromCents(totals.get(key) ?? 0),
+      spent_cents: totals.get(key) ?? 0,
+      // A month is only comparable to another month if it is a whole one. The
+      // current month is always part way through, and the earliest is whenever
+      // the bank's history happens to start, so neither can be held up as
+      // evidence of a quiet month.
+      complete: key !== thisMonth && (firstMonth === null || key > firstMonth),
+    });
+    month--;
+    if (month === 0) { month = 12; year--; }
+  }
+  return out;
 }

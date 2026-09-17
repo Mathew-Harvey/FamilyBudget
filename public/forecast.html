@@ -25,17 +25,8 @@
 
   <h2>Luxury spending</h2>
   <div class="card stack">
-    <p class="muted" style="margin:0">Food, fuel, care, pets, cover and fixed costs form the household plan. Active optional commitments remain included because they are still being charged. The allowance below is shared by Forecast, Today and Lasting.</p>
-    <div class="row">
-      <label style="display:flex;gap:0.4rem;align-items:center;margin:0">
-        <input id="includeDiscretionary" type="checkbox">
-        <span>Include a discretionary allowance</span>
-      </label>
-      <div>
-        <label for="discretionaryAmount">Amount each month</label>
-        <input id="discretionaryAmount" type="number" min="0" step="25" value="0" disabled style="width:8rem">
-      </div>
-    </div>
+    <p class="muted" style="margin:0">Food, fuel, care, pets, cover and fixed costs form the household plan. Active optional commitments remain included because they are still being charged. One allowance is shared by Forecast, Today and Lasting.</p>
+    <div class="row spread" id="allowanceLine"></div>
     <div id="luxuryCommitments"><p class="muted">Loading commitments...</p></div>
     <p class="muted" style="margin:0">Change whether a place is essential, flexible or luxury on the <a href="/spending">Spending page</a>.</p>
   </div>
