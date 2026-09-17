@@ -1,140 +1,189 @@
 // What it would take to last.
 //
-// The Today page says when the money runs out. This says what would have to go
-// for it not to, which is the question that actually follows.
+// Home says when the money runs out. This says what would have to go for it not
+// to, which is the question that follows.
 //
-// It is built as cumulative steps rather than one number because that is how it
-// gets done. Each one names the actual things, because "cut 2,000 a month" is
-// not a plan.
+// The page leads with one diagram: a track as long as the gap, with each step's
+// saving filling it from the left. Whether cutting is enough is then a length
+// rather than a sentence, and the part that does not fill is the part that
+// cannot come from cutting. docs/behaviour.md is firm that a page which let
+// someone cancel their subscriptions and believe the problem was handled would
+// be doing them harm, and an unfilled track says that without a paragraph.
 //
-// The rule it holds hardest: when a step is not enough, it says so and says by
-// how much. A page that let someone cancel their subscriptions and believe the
-// problem was handled would be doing them real harm. See docs/behaviour.md.
+// The other rule it holds to: name what goes. "Cut 2,000 a month" is a number,
+// not a plan. Every step lists the actual things, so it can be argued with.
 import { api, el, formatAmount, renderNav, showError } from '/app.js';
 
 renderNav('/plan');
+
 const money = (value) => formatAmount(value);
 const abs = (value) => formatAmount(String(value).replace('-', ''));
+const cents = (value) => Math.round(Number(value ?? 0) * 100);
 
-// One step. The outcome line is the point of it, so it goes first and largest.
-//
-// What that line may claim depends on whether there was a gap at all. With more
-// coming in than going out, every step trivially "balances", and saying so reads
-// as though the step did it. It did not: there was nothing to close, and a page
-// that takes credit for that is bending a number the same way as one that hides
-// a shortfall.
-function stepCard(step, index, short) {
-  const outcome = !short
-    ? el('div', { class: 'good', style: 'font-weight:700;font-size:1.05rem' },
-        [el('span', { text: `Already balanced. This would free up ${money(step.saves_per_month)} a month on top.` })])
-    : step.lasts
-      ? el('div', { class: 'good', style: 'font-weight:700;font-size:1.05rem' },
-          [el('span', { text: 'This balances. Nothing runs out.' })])
-      : el('div', { style: 'font-weight:700;font-size:1.05rem' }, [
-          el('span', { class: 'warn', text: step.beyond_horizon
-            ? `Lasts past ${step.horizon_date_friendly}`
-            : `Still runs out ${step.runway_date_friendly}` }),
-          el('span', { class: 'muted', style: 'font-weight:400', text: ` , still ${money(step.still_short_per_month)} a month short` }),
-        ]);
+// Each step is drawn in the tier it acts on, so the colours mean the same thing
+// here as on Home and Spending: dark is a bill you must pay, pale is a choice.
+const TONE = { optional: 'cut', trim: 'trim' };
+// Short enough for a key. The card below carries the full title.
+const SHORT = { optional: 'Optional costs', trim: 'Trimming' };
 
-  const list = el('div', { class: 'stack', style: 'gap:0.15rem;margin-top:0.5rem' },
-    step.removes.map((row) =>
-      el('div', { class: 'row', style: 'gap:0.5rem;align-items:baseline' }, [
-        el('span', { class: 'truncate grow', text: row.what }),
-        el('span', { class: 'amount out', style: 'white-space:nowrap',
-          text: row.from ? `${money(row.per_month)} off ${money(row.from)}` : money(row.per_month) }),
-      ])));
+// --- the diagram ----------------------------------------------------------
 
-  if (step.removes_more > 0) {
-    list.append(el('div', { class: 'muted', text: `and ${step.removes_more} more` }));
-  }
+// The track is the gap. Each step fills part of it. What is left unfilled is
+// what cutting cannot reach.
+function gapDiagram(plan, short) {
+  const gap = cents(plan.now.gap_per_month);
+  const steps = plan.steps;
+  if (!short || gap <= 0 || !steps.length) return null;
 
-  return el('div', { class: 'card stack' }, [
-    el('div', { class: 'row', style: 'align-items:baseline;gap:0.5rem' }, [
-      el('span', { class: 'badge', text: `Step ${index + 1}` }),
-      el('strong', { class: 'grow', text: step.title }),
+  // Cumulative, because each step includes the ones above it. The bar shows the
+  // increment each one adds so the segments read as separate choices.
+  let running = 0;
+  const segments = steps.map((step) => {
+    const total = Math.min(cents(step.saves_per_month), gap);
+    const added = Math.max(total - running, 0);
+    running = Math.max(running, total);
+    return { key: step.key, added };
+  }).filter((segment) => segment.added > 0);
+
+  const shortfall = Math.max(gap - running, 0);
+
+  return el('div', {}, [
+    el('div', { class: 'split', style: 'height:22px' }, [
+      ...segments.map((segment) => el('i', {
+        style: `flex:${segment.added};background:var(--tier-${TONE[segment.key] ?? 'trim'})`,
+      })),
+      shortfall > 0 ? el('i', { class: 'unreachable', style: `flex:${shortfall}` }) : null,
     ]),
-    el('div', { class: 'muted', text: step.detail }),
-    outcome,
-    el('div', { class: 'muted', style: 'margin-top:0.3rem', text: `Saves ${money(step.saves_per_month)} a month. What goes:` }),
-    list,
+    el('div', { class: 'keys' }, [
+      ...segments.map((segment, index) => el('span', {}, [
+        el('i', { style: `background:var(--tier-${TONE[segment.key] ?? 'trim'})` }),
+        el('span', { text: `${SHORT[segment.key] ?? steps[index].title} ` }),
+        el('b', { text: money((segment.added / 100).toFixed(2)) }),
+      ])),
+      shortfall > 0 ? el('span', {}, [
+        el('i', { class: 'unreachable' }),
+        el('span', { text: 'Cutting cannot reach ' }),
+        el('b', { text: money((shortfall / 100).toFixed(2)) }),
+      ]) : null,
+    ]),
   ]);
 }
+
+// --- a step ---------------------------------------------------------------
+
+function stepCard(step, index, short) {
+  const outcome = !short
+    ? el('div', { class: 'state ok', style: 'font-size:0.88rem' }, [
+        el('span', { class: 'dot' }),
+        el('span', { text: `Frees up ${money(step.saves_per_month)} a month on top` }),
+      ])
+    : step.lasts
+      ? el('div', { class: 'state ok', style: 'font-size:0.88rem' }, [
+          el('span', { class: 'dot' }),
+          el('span', { text: 'This balances. Nothing runs out.' }),
+        ])
+      : el('div', { class: 'state bad', style: 'font-size:0.88rem' }, [
+          el('span', { class: 'dot' }),
+          el('span', { text: step.beyond_horizon
+            ? `Lasts past ${step.horizon_date_friendly}, still ${money(step.still_short_per_month)} short`
+            : `Runs out ${step.runway_date_friendly}, still ${money(step.still_short_per_month)} short` }),
+        ]);
+
+  const rows = step.removes.map((row) =>
+    el('div', { class: 'row spread', style: 'gap:10px;padding:5px 0' }, [
+      el('span', { class: 'truncate grow', text: row.what }),
+      el('span', { class: 'amount out', text: row.from
+        ? `${money(row.per_month)} off ${money(row.from)}`
+        : money(row.per_month) }),
+    ]));
+  if (step.removes_more > 0) {
+    rows.push(el('div', { class: 's', text: `and ${step.removes_more} more` }));
+  }
+
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'row', style: 'gap:9px;margin-bottom:6px' }, [
+      el('span', { class: `av ${TONE[step.key] ?? 'trim'}`, style: 'width:26px;height:26px;border-radius:8px;font-size:0.72rem', text: String(index + 1) }),
+      el('strong', { class: 'grow', text: step.title }),
+      el('span', { class: 'amount', text: money(step.saves_per_month) }),
+    ]),
+    outcome,
+    el('div', { style: 'margin-top:10px' }, rows),
+  ]);
+}
+
+// --- the page -------------------------------------------------------------
 
 async function load() {
   try {
     const { plan, levers } = await api('/api/plan');
 
-    // Positive is going backwards. A negative gap is a surplus, and the
-    // sentence below used to print it straight into "more goes out than comes
-    // in", so a household that was ahead by 9,440 a month was told it was short
-    // by minus 9,440 and that the money runs out.
-    //
-    // Read off the sign of the string rather than multiplying it by 100, which
-    // would be float arithmetic on an amount to answer a question about a minus
-    // sign. Zero is not short either.
-    const gap = String(plan.now.gap_per_month ?? '0');
-    const short = !gap.startsWith('-') && Number(gap) > 0;
+    // Positive is going backwards. Read off the sign of the string rather than
+    // multiplying by 100, which would be float arithmetic on an amount to
+    // answer a question about a minus sign. Zero is not short either.
+    const gapText = String(plan.now.gap_per_month ?? '0');
+    const short = !gapText.startsWith('-') && Number(gapText) > 0;
 
     const head = document.getElementById('head');
     head.innerHTML = '';
-    head.className = 'card stack';
-    head.append(
-      el('h2', { style: 'margin:0', text: 'What it would take to last' }),
-      short
-        ? el('p', { style: 'margin:0' }, [
-            el('span', { text: 'As things stand the money runs out ' }),
-            el('strong', { text: plan.now.runway_date_friendly ?? 'beyond this projection' }),
-            el('span', { text: ', because ' }),
-            el('strong', { class: 'amount out', text: `${money(plan.now.gap_per_month)} a month` }),
-            el('span', { text: ' more goes out than comes in. Closing that gap is the whole job.' }),
-          ])
-        : el('p', { style: 'margin:0' }, [
-            el('span', { text: 'As things stand more comes in than goes out, by ' }),
-            el('strong', { class: 'amount in', text: `${abs(plan.now.gap_per_month)} a month` }),
-            el('span', { text: '. There is no gap to close, so nothing below has to happen. It is here for what each change would be worth if you wanted it.' }),
-          ]),
-      el('p', { class: 'muted', style: 'margin:0', text:
-        'Each step below includes the ones above it, because that is how it would be lived. Nothing here changes anything: it is what the numbers would do.' }),
-    );
+    head.append(el('div', { class: 'card' }, [
+      el('span', { class: `state ${short ? 'bad' : 'ok'}` }, [
+        el('span', { class: 'dot' }),
+        el('span', { text: short ? 'Going backwards' : 'Already balanced' }),
+      ]),
+      el('div', { class: 'figure', text: abs(plan.now.gap_per_month) }),
+      el('div', { class: `delta ${short ? 'down' : 'up'}` }, [
+        el('span', { class: 'q', text: short
+          ? `a month short${plan.now.runway_date_friendly ? `, runs out ${plan.now.runway_date_friendly}` : ''}`
+          : 'a month left over' }),
+      ]),
+      gapDiagram(plan, short),
+      !short ? el('p', { class: 'muted small', style: 'margin:14px 0 0',
+        text: 'Nothing below has to happen. It is what each change would be worth.' }) : null,
+    ]));
 
     const steps = document.getElementById('steps');
     steps.innerHTML = '';
+    if (plan.steps.length) steps.append(el('div', { class: 'sec', text: 'In this order' }));
     plan.steps.forEach((step, index) => steps.append(stepCard(step, index, short)));
 
-    // The floor: every listed change done, and whether that is enough.
+    // The floor: every listed change taken, and whether that is enough.
     const floor = document.getElementById('floor');
     floor.innerHTML = '';
-    floor.append(el('div', { class: 'card stack' }, [
-      el('h3', { style: 'margin:0', text: 'All changes together' }),
-      el('div', { style: 'font-size:1.2rem;font-weight:700', class: plan.floor.lasts ? 'good' : 'warn',
-        text: !short
-          ? `Every change above comes to ${money(plan.floor.saves_per_month)} a month.`
-          : plan.floor.lasts
-            ? `That balances, on ${money(plan.floor.saves_per_month)} a month of changes.`
-            : `Even all of it leaves you ${money(plan.floor.still_short_per_month)} a month short.` }),
-      el('p', { class: 'muted', style: 'margin:0', text: !short
-        ? 'That is what it would add to what is already left over each month, not what it takes to balance. Nothing here is needed to stay afloat.'
-        : plan.floor.lasts
-          ? 'Together, the changes above cover what was short.'
-          : 'Cutting cannot close this on its own. The rest has to come from what comes in, from selling something, or from changing what the debts cost each month.' }),
+    floor.append(el('div', { class: 'card' }, [
+      el('div', { class: 'row spread' }, [
+        el('span', { class: 'grow' }, [
+          el('span', { class: 't', text: 'All of it together' }),
+          el('span', { class: 's', text: !short
+            ? 'on top of what is already left over'
+            : plan.floor.lasts ? 'covers what was short' : 'cutting cannot close this on its own' }),
+        ]),
+        el('span', { class: `amount ${plan.floor.lasts ? 'in' : 'out'}`, style: 'font-size:1.2rem',
+          text: money(plan.floor.saves_per_month) }),
+      ]),
+      short && !plan.floor.lasts ? el('p', { class: 'warn small', style: 'margin:10px 0 0',
+        text: `Still ${money(plan.floor.still_short_per_month)} a month short. The rest has to come from `
+          + 'what comes in, from selling something, or from changing what the debts cost.' }) : null,
     ]));
 
     // Selling things. A lever, not a plan.
     const leverBox = document.getElementById('levers');
     leverBox.innerHTML = '';
     if (levers.length) {
-      leverBox.append(el('div', { class: 'card stack' }, [
-        el('h3', { style: 'margin:0', text: 'Selling things buys time, it does not fix the gap' }),
-        el('div', { class: 'muted', text: 'Each line assumes the ones above it are sold too. This buys weeks to make the changes above stick, and once it is spent it is gone.' }),
-        el('div', { class: 'stack', style: 'gap:0.2rem' }, levers.map((lever) =>
-          el('div', { class: 'row', style: 'gap:0.5rem;align-items:baseline' }, [
-            el('span', { class: 'truncate grow', text: lever.name }),
-            el('span', { class: 'amount', style: 'white-space:nowrap', text: money(lever.worth) }),
-            el('span', { class: 'good', style: 'white-space:nowrap;min-width:7rem;text-align:right',
-              text: lever.days_gained === null ? '' : `+${lever.days_gained} days` }),
+      leverBox.append(
+        el('div', { class: 'sec', text: 'Selling something buys time, it does not fix the gap' }),
+        el('div', { class: 'card flush' }, levers.map((lever) =>
+          el('div', { class: 'item' }, [
+            el('span', { class: 'grow' }, [
+              el('span', { class: 't truncate', text: lever.name }),
+              el('span', { class: 's', text: `with everything above, ${money(lever.with_everything_above)}` }),
+            ]),
+            el('span', { class: 'right' }, [
+              el('span', { class: 'amount', text: money(lever.worth) }),
+              lever.days_gained === null ? null
+                : el('span', { class: 's good', text: `+${lever.days_gained} days` }),
+            ]),
           ]))),
-      ]));
+      );
     }
 
     // What is not being touched. Said out loud, because a page that only lists
@@ -142,17 +191,15 @@ async function load() {
     const kept = document.getElementById('kept');
     kept.innerHTML = '';
     if (plan.kept.length) {
-      kept.append(el('div', { class: 'card stack' }, [
-        el('h3', { style: 'margin:0', text: 'What none of this touches' }),
-        el('div', { class: 'muted', text: 'The roof, the power, the cover and the debts stay exactly as they are.' }),
-        el('div', { class: 'stack', style: 'gap:0.15rem' }, plan.kept.slice(0, 10).map((row) =>
-          el('div', { class: 'row', style: 'gap:0.5rem;align-items:baseline' }, [
-            el('span', { class: 'truncate grow', text: row.what }),
-            el('span', { class: 'amount', style: 'white-space:nowrap', text: `${money(row.per_month)} a month` }),
+      kept.append(
+        el('div', { class: 'sec', text: 'None of this changes' }),
+        el('div', { class: 'card flush' }, plan.kept.slice(0, 10).map((row) =>
+          el('div', { class: 'item' }, [
+            el('span', { class: 'av keep', style: 'width:26px;height:26px;border-radius:8px;font-size:0.7rem', text: '✓' }),
+            el('span', { class: 'grow truncate t', text: row.what }),
+            el('span', { class: 'amount', text: money(row.per_month) }),
           ]))),
-        el('p', { class: 'muted', style: 'margin:0', text:
-          `Anything in the wrong group can be moved on the Spending page. The trimming assumes ${plan.trim_percent} percent less on food, fuel and care.` }),
-      ]));
+      );
     }
     showError('');
   } catch (err) {

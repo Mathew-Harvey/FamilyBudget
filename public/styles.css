@@ -283,3 +283,19 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 .compare { display: grid; grid-template-columns: auto 1fr auto; gap: 9px 10px; align-items: center; }
 .compare .split { height: 14px; }
 .compare .s { margin: 0; }
+
+/* The part of a gap that cutting cannot reach. Hatched rather than a fourth
+   colour, because it is the absence of a saving rather than another kind of
+   one, and a solid fill there would read as a fifth thing that could go. */
+.unreachable {
+  background: repeating-linear-gradient(135deg,
+    var(--line) 0 5px, var(--surface) 5px 10px);
+  border: 1px solid var(--line);
+}
+.keys i.unreachable { border-radius: 2px; }
+
+/* A state line whose text wraps must not leave its dot floating beside the
+   last line. The dot sits with the first line and the text is its own block. */
+.state { align-items: flex-start; }
+.state .dot { margin-top: 0.42em; }
+.state > span:last-child { display: block; }

@@ -243,6 +243,14 @@ payment, ignores interest" earns its line because without it the payoff dates
 read as promises. The rule is that an explanation of the DESIGN goes, and a
 qualification of the FIGURE stays.
 
+**The Lasting page leads with the gap as a track.** It is as long as what the
+household is short, each step fills part of it from the left, and what is left
+unfilled is hatched rather than coloured, because it is the absence of a saving
+rather than another kind of one. Whether cutting is enough is then a length: on
+a gap of 2,317 with 675 of cuts available, two thirds of the track stays empty
+and nobody has to read a sentence to know it. This is the rule about not
+pretending the small stuff is the answer, drawn instead of written.
+
 **A bar length means one thing at a time.** The Spending list shows a monthly
 rate for places paid on three or more days and a window total for the rest,
 because a place paid twice a year has no monthly rate. Those are two different
