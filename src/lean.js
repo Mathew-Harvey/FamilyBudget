@@ -23,7 +23,7 @@
 import { query } from './db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { numericToCents, centsToNumeric, dailyFromMonthly } from './money.js';
-import { friendlyDate, position } from './behaviour.js';
+import { friendlyDate, position, cashCurve, curveHorizon } from './behaviour.js';
 
 const toCents = (value) => numericToCents(value ?? 0);
 const fromCents = centsToNumeric;
@@ -59,7 +59,12 @@ export async function leanPlan({
   const optionalCommitmentCents = sum(cutCommitments);
   const allowanceCents = costs.discretionary_allowance_cents;
   const optionalSavingCents = optionalCommitmentCents + allowanceCents;
-  const trimSavingCents = Math.round((sum(trimVariable) * trim) / 100);
+  // Rounded per row and then summed, not the other way round, so the figure
+  // heading the card is exactly what the lines under it add up to. One rounding
+  // of the total headed step two with 603.65 over four rows adding to 603.66,
+  // which is a card that disagrees with itself by a cent.
+  const trimRowCents = (row) => Math.round((row.per_month_cents * trim) / 100);
+  const trimSavingCents = trimVariable.reduce((total, row) => total + trimRowCents(row), 0);
   const optionalIds = cutCommitments.map((row) => row.commitment_id);
 
   const steps = [];
@@ -83,13 +88,15 @@ export async function leanPlan({
   if (trimSavingCents > 0) {
     steps.push({
       key: 'trim',
-      title: `Spend ${trim} percent less on flexible essentials`,
+      // The tier's own word. "Flexible essentials" was a fifth name for the
+      // three tiers after the other four had just been reduced to one set.
+      title: `Spend ${trim} percent less on what could be trimmed`,
       detail: 'Food, fuel, pets and care stay in the plan, at a lower amount.',
       removes: trimVariable
         .slice(0, 8)
         .map((row) => ({
           what: row.name,
-          per_month: fromCents(Math.round((row.per_month_cents * trim) / 100)),
+          per_month: fromCents(trimRowCents(row)),
           from: row.per_month,
         })),
       removesMore: Math.max(trimVariable.length - 8, 0),
@@ -112,6 +119,7 @@ export async function leanPlan({
   // Each step re-projected. Commitments are excluded by id; variable spending
   // comes off the daily rate. Never both for the same money.
   const projected = [];
+  let floorView = null;
   for (const step of steps) {
     const view = await forecast({
       days: 400,
@@ -134,6 +142,7 @@ export async function leanPlan({
     // this said "never runs out", because 400 days was not long enough to show
     // it. That is the overclaim docs/behaviour.md exists to prevent.
     const lasts = savedCents >= gapCents;
+    floorView = view;
     projected.push({
       key: step.key,
       title: step.title,
@@ -161,6 +170,13 @@ export async function leanPlan({
   const floorSavedCents = steps.at(-1)?.savesCents ?? 0;
   const stillShortCents = gapCents - floorSavedCents;
 
+  // Both curves on one horizon, or the comparison is drawn against a lie. The
+  // longer of the two horizons, so a plan that pushes the crossing out is shown
+  // reaching it rather than being cut off where the money as it is failed.
+  const horizon = floorView
+    ? Math.max(curveHorizon(base), curveHorizon(floorView))
+    : curveHorizon(base);
+
   return {
     window_days: window,
     trim_percent: trim,
@@ -169,6 +185,11 @@ export async function leanPlan({
       runway_date_friendly: friendlyDate(base.runway_date),
       runway_days: base.runway_days,
       gap_per_month: fromCents(gapCents),
+    },
+    curve: {
+      as_is: cashCurve(base, horizon),
+      // Null when there is nothing to change, rather than the same curve twice.
+      with_plan: floorView ? cashCurve(floorView, horizon) : null,
     },
     steps: projected,
     floor: {

@@ -818,6 +818,37 @@ again. It is linked from the two pages that show the income it changes: the
 Forecast page's "Money coming in" row, and the front page beside the "In" bar,
 which says whether any has been entered. A feature nobody can find is not built.
 
+**The plan is a distance between two curves, and the page now draws it.** It
+built a 400 day projection for every step and threw the series away, keeping
+only the runway date, so the one thing the page is for, what the changes would
+be worth over time, was nowhere on it. `cashChart` takes a `reference` series
+now: the money with every step taken is the ink line and the money as it is the
+dashed hairline, aligned by date rather than index, on one scale covering both,
+over one horizon, the longer of the two, so a plan that pushes the crossing out
+is shown reaching it rather than being cut off where the money as it is failed.
+The reference is quiet on purpose: no fill, no colour, one word at its end. The
+worked case is a household 1,726 a month short: as it is reaches nothing left on
+7 September, with the plan it climbs away, and that is the picture no figure
+carries. `cashCurve` and `curveHorizon` live in `src/behaviour.js` for that
+reason, one definition of how much of a projection a page draws.
+
+**A label that punches through the curve must sit at the end of its own curve
+and nowhere else.** `.end` wears a surface coloured box so the main figure wins
+against the line it sits on. The reference label inherited it and sits at the
+reference line's end, which is inside the main curve's fill, so the box erased
+a rectangle of that fill and cut the ink line. Invisible in light mode, where
+surface and tint are near enough, and a hole in the chart in dark mode and at
+phone width. The reference label has no box.
+
+**A step's saving is the sum of the rows under it, by construction.** Step two
+was headed 603.65 over four lines adding to 603.66: one rounding of the total
+against four roundings of the parts. Round per row, then sum, so the head and
+the rows cannot disagree even by a cent. The plan's step two also said
+"flexible essentials", a fifth name for the tiers the day after the other four
+became one, and its state line said "Already balanced" of a household 6,824 a
+month ahead, where Home says "More is coming in than going out". The same state
+reads the same on every page.
+
 **`npm run reconcile` answers "are we counting correctly" without anyone
 having to take it on trust.** The tests prove the code does what it was written
 to do, on fixtures. `scripts/reconcile.js` checks the real data against

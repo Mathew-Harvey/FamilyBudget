@@ -93,6 +93,30 @@ export function priceIn({ monthlyCents, dailyGapCents, balanceCents }) {
   };
 }
 
+// How much of a projection a page draws.
+//
+// Long enough to hold the answer and no longer. When the money reaches zero the
+// chart is about that crossing, so it runs a few weeks past it rather than
+// ending on it: a line that stops exactly where it fails looks like the edge of
+// the chart rather than the edge of the money. When it does not, half a year is
+// as far as anyone can act on, and a 400 day curve on the front page is a
+// picture of a household that does not exist yet.
+export function curveHorizon(projection) {
+  return projection.runway_days === null
+    ? 182
+    : Math.min(projection.runway_days + 21, projection.days);
+}
+
+// The horizon can be given, so two curves drawn against each other share one.
+export function cashCurve(projection, horizon = curveHorizon(projection)) {
+  return {
+    runway_date: projection.runway_date,
+    series: projection.series
+      .slice(0, horizon + 1)
+      .map((point) => ({ date: point.date, balance_cents: point.balance_cents })),
+  };
+}
+
 // The blunt position. Three numbers and a date, and nothing else, because a
 // dashboard of twenty numbers is a dashboard nobody reads.
 export async function position({

@@ -577,3 +577,15 @@ input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
 }
 .inside .item { padding-left: 0; padding-right: 16px; }
 .inside .t { font-weight: 500; }
+
+/* The comparison curve's one word, under its own line end so it cannot meet
+   the main figure, which sits above its own. Muted, because the reference is
+   the quiet one: the ink line is the subject. No punch-through background:
+   .end wears one so the main figure wins against the curve it sits on, but
+   this label sits below the reference line, which is inside the main curve's
+   fill, and the box was erasing a rectangle of that fill and cutting the ink
+   line. Obvious in dark mode, hidden in light where surface and tint match. */
+.cash .end.ref {
+  transform: translateY(35%); color: var(--muted); font-weight: 560;
+  background: transparent; padding: 0;
+}

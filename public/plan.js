@@ -13,6 +13,7 @@
 // The other rule it holds to: name what goes. "Cut 2,000 a month" is a number,
 // not a plan. Every step lists the actual things, so it can be argued with.
 import { api, el, formatAmount, renderNav, showError } from '/app.js';
+import { cashChart } from '/chart.js';
 
 renderNav('/plan');
 
@@ -65,6 +66,28 @@ function gapDiagram(plan, short) {
         el('span', { text: 'Cutting cannot reach ' }),
         el('b', { text: money((shortfall / 100).toFixed(2)) }),
       ]) : null,
+    ]),
+  ]);
+}
+
+// --- the curve ------------------------------------------------------------
+
+function planCurve(plan) {
+  const curve = plan.curve;
+  if (!curve?.as_is?.series?.length) return null;
+  // Nothing to change, so nothing to compare: one curve, no reference.
+  if (!curve.with_plan) {
+    return cashChart(curve.as_is.series, { height: 200, runwayDate: curve.as_is.runway_date });
+  }
+  return el('div', {}, [
+    cashChart(curve.with_plan.series, {
+      height: 200,
+      runwayDate: curve.with_plan.runway_date,
+      reference: { series: curve.as_is.series, label: 'as it is' },
+    }),
+    el('div', { class: 'keys', style: 'margin-top:6px' }, [
+      el('span', {}, [el('i', { style: 'background:var(--ink)' }), el('span', { text: 'With all of it' })]),
+      el('span', {}, [el('i', { style: 'background:var(--neutral)' }), el('span', { text: 'As it is' })]),
     ]),
   ]);
 }
@@ -133,7 +156,9 @@ async function load() {
     head.append(el('div', { class: 'card' }, [
       el('span', { class: `state ${short ? 'bad' : 'ok'}` }, [
         el('span', { class: 'dot' }),
-        el('span', { text: short ? 'Going backwards' : 'Already balanced' }),
+        // The same words Home uses for the same state. "Already balanced" is
+        // break even, and it was said of a household thousands a month ahead.
+        el('span', { text: short ? 'Going backwards' : 'More is coming in than going out' }),
       ]),
       el('div', { class: 'figure', text: abs(plan.now.gap_per_month) }),
       el('div', { class: `delta ${short ? 'down' : 'up'}` }, [
@@ -142,6 +167,12 @@ async function load() {
           : 'a month left over' }),
       ]),
       gapDiagram(plan, short),
+      // Two curves, one scale: the money as it is, and the money with every
+      // step below taken. What the plan is worth is the distance between them,
+      // which no figure on this page carries and which grows with time. The
+      // ink line is the plan because the plan is what this page is about; the
+      // dashed line is where you are without it.
+      planCurve(plan),
       !short ? el('p', { class: 'muted small', style: 'margin:14px 0 0',
         text: 'Nothing below has to happen. It is what each change would be worth.' }) : null,
     ]));

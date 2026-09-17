@@ -36,15 +36,32 @@ function shortDate(iso) {
   return `${Number(day)} ${SHORT_MONTHS[Number(month) - 1]}`;
 }
 
-export function cashChart(series, { height = 200, runwayDate = null } = {}) {
+// A second curve on the same scale, drawn as a hairline.
+//
+// The plan page asks what a set of changes would do, and the only honest
+// answer is two curves: the money as it is, and the money with the changes
+// made. That is one chart with one job, "how far apart are these", and the
+// reference is deliberately quiet: no fill, no colour, one word at its end.
+// It is aligned by date rather than by index so a shorter or offset series
+// cannot be drawn against the wrong days.
+export function cashChart(series, { height = 200, runwayDate = null, reference = null } = {}) {
   const points = series.filter((point) => point.balance_cents !== undefined);
   if (points.length < 2) return el('p', { class: 'muted small', text: 'Not enough to project yet.' });
 
   const values = points.map((point) => Number(point.balance_cents));
   const start = values[0];
   const last = values.at(-1);
-  const lowest = Math.min(...values);
-  const highest = Math.max(...values);
+
+  const refByDate = new Map((reference?.series ?? [])
+    .filter((point) => point.balance_cents !== undefined)
+    .map((point) => [point.date, Number(point.balance_cents)]));
+  const refValues = points.map((point) => refByDate.get(point.date) ?? null);
+  const hasRef = refValues.some((value) => value !== null);
+
+  // The scale covers both curves, or the comparison is drawn against a lie.
+  const everything = values.concat(refValues.filter((value) => value !== null));
+  const lowest = Math.min(...everything);
+  const highest = Math.max(...everything);
 
   // Fitted to the curve, not forced down to zero. Twenty two thousand dollars
   // moving by two is a flat line on a scale that starts at nothing, and how it
@@ -70,6 +87,15 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
   const line = values
     .map((value, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
     .join(' ');
+  // Only through the days the reference has a value for, so a gap breaks the
+  // line rather than being bridged by a straight segment across it.
+  let refPenDown = false;
+  const refLine = refValues.map((value, i) => {
+    if (value === null) { refPenDown = false; return ''; }
+    const op = refPenDown ? 'L' : 'M';
+    refPenDown = true;
+    return `${op}${x(i).toFixed(1)},${y(value).toFixed(1)}`;
+  }).filter(Boolean).join(' ');
   // Closed along zero, so the filled area is the money there is rather than the
   // distance from where it stands today. Filled twice and clipped at the same
   // level, which puts every crossing in the right colour without anyone having
@@ -104,6 +130,8 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
         stroke="var(--out)" stroke-width="1" vector-effect="non-scaling-stroke"/>` : ''}
       <line x1="0" y1="${refY.toFixed(1)}" x2="${W}" y2="${refY.toFixed(1)}"
             stroke="var(--axis)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+      ${hasRef ? `<path d="${refLine}" fill="none" stroke="var(--neutral)" stroke-width="1.5"
+            stroke-dasharray="4 3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : ''}
       <path d="${line}" fill="none" stroke="var(--ink)" stroke-width="2"
             stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     </svg>`;
@@ -155,6 +183,15 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
     ]));
   }
 
+  if (hasRef) {
+    const lastRefIndex = refValues.length - 1 - [...refValues].reverse().findIndex((value) => value !== null);
+    wrap.append(el('span', {
+      class: 'end ref',
+      style: `top:${up(refValues[lastRefIndex])}`,
+      text: reference.label ?? 'as it is',
+    }));
+  }
+
   // The hover layer. A crosshair and one tooltip: the chart shows the shape and
   // this answers "what about that day", which is the only other question it
   // raises. Touch counts, so this is pointer events rather than mouse.
@@ -187,6 +224,9 @@ export function cashChart(series, { height = 200, runwayDate = null } = {}) {
       el('span', {
         text: `${change >= 0 ? '+' : '−'}${formatAmount((Math.abs(change) / 100).toFixed(2))} on today`,
       }),
+      hasRef && refValues[i] !== null
+        ? el('span', { text: `${reference.label ?? 'as it is'} ${formatAmount((refValues[i] / 100).toFixed(2))}` })
+        : null,
     );
     wrap.classList.add('hovering');
   };
