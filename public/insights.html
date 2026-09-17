@@ -3,80 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Insights</title>
+<title>Ask Claude about it</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <main>
   <div id="notice"></div>
+  <div id="head"></div>
 
+  <div class="sec">Ask it something</div>
   <div class="card stack">
-    <div id="claudeState" class="muted"></div>
-    <div class="row">
-      <label class="tick"><input type="checkbox" class="switch" id="enabled"> Analyse automatically</label>
-      <div><label for="cadence">Every</label><input id="cadence" type="number" style="width:5rem"> <span class="muted">days</span></div>
-      <div><label for="effort">Depth</label><select id="effort">
-        <option value="low">quick</option><option value="medium">medium</option>
-        <option value="high">thorough</option><option value="xhigh">very thorough</option>
-      </select></div>
-      <button id="saveSettings">Save</button>
-    </div>
-    <div class="row">
-      <input id="question" placeholder="Ask something, or leave blank for a general read" style="flex:1;min-width:14rem">
+    <div class="row" style="flex-wrap:wrap">
+      <input id="question" placeholder="Leave blank for a general read" style="flex:1;min-width:14rem">
       <button class="primary" id="run">Analyse now</button>
-      <a href="/api/analyst/snapshot" target="_blank" class="muted" style="align-self:center">See what gets sent</a>
     </div>
-    <div class="muted" id="runState"></div>
+    <div class="muted small" id="runState"></div>
   </div>
 
-  <h2>Can we afford it</h2>
-  <p class="muted">Put a number and a thing. It works out what that does to the runway, then suggests ways to make it work: selling something, trimming something, or waiting.</p>
+  <div class="sec">Can we afford it</div>
+  <p class="muted small" style="margin:-4px 0 10px">A number and a thing. It works out what that does to the runway, then suggests ways to make it work: selling something, trimming something, or waiting.</p>
   <div class="card stack">
     <div class="filters">
-      <div><label for="affordWhat">What</label><input id="affordWhat" style="width:100%" placeholder="A push bike"></div>
-      <div><label for="affordAmount">How much</label><input id="affordAmount" type="number" step="0.01" style="width:100%" placeholder="5000"></div>
-      <div><label for="affordWhen">When</label><input id="affordWhen" type="date" style="width:100%"></div>
+      <div><label for="affordWhat">What</label><input id="affordWhat" placeholder="A push bike"></div>
+      <div><label for="affordAmount">How much</label><input id="affordAmount" type="number" step="0.01" placeholder="5000"></div>
+      <div><label for="affordWhen">When</label><input id="affordWhen" type="date"></div>
     </div>
-    <div class="row">
+    <div class="row" style="flex-wrap:wrap">
       <button class="primary" id="affordButton">Work it out</button>
       <button id="trimButton">Where could we trim</button>
-      <span class="muted" id="affordState"></span>
+      <span class="muted small" id="affordState"></span>
     </div>
     <div id="affordResult"></div>
   </div>
 
-  <h2>Levers</h2>
-  <p class="muted">Income you expect but that has not started, and things you could sell, are set on <a href="/expected">Changes you expect</a> under Set up. They feed the forecast whether or not analysis is switched on, which is why they do not live behind this switch.</p>
-
-  <h2>Something coming up</h2>
-  <p class="muted">Tell it about a cost you know is coming, in plain words. It works out the shape and you decide whether to add it.</p>
+  <div class="sec">Something coming up</div>
+  <p class="muted small" style="margin:-4px 0 10px">A cost you know is coming, in plain words. It works out the shape and you decide whether to add it.</p>
   <div class="card stack">
-    <div class="row">
+    <div class="row" style="flex-wrap:wrap">
       <input id="plan" placeholder="Next week I'm getting a SmartRider card, probably $50 a week" style="flex:1;min-width:14rem">
       <button class="primary" id="planButton">Work it out</button>
     </div>
     <div id="planResult"></div>
   </div>
 
-  <h2>Debts and accounts we cannot see</h2>
-  <p class="muted">A credit card or loan that open banking does not reach. Enter it here so it counts, and update the balance when you check it.</p>
-  <div class="card stack">
-    <div class="filters">
-      <div><label for="mBank">Provider</label><input id="mBank" style="width:100%" placeholder="Bendigo"></div>
-      <div><label for="mName">What it is</label><input id="mName" style="width:100%" placeholder="Skye's credit card"></div>
-      <div><label for="mType">Type</label><select id="mType" style="width:100%">
-        <option value="credit_card">Credit card</option><option value="personal_loan">Personal loan</option>
-        <option value="savings">Savings</option><option value="transaction">Everyday</option>
-      </select></div>
-      <div><label for="mBalance">Amount owed</label><input id="mBalance" type="number" step="0.01" style="width:100%" placeholder="6500"></div>
-    </div>
-    <div class="row"><button class="primary" id="addAccount">Add it</button></div>
-    <div id="manualList"></div>
-  </div>
+  <div id="history"></div>
 
-  <h2>Recent analysis</h2>
-  <div id="history"><p class="muted">Loading...</p></div>
+  <details class="card" id="settings">
+    <summary>How often it runs on its own, and how deep</summary>
+    <div class="stack" style="margin-top:14px">
+      <div class="filters">
+        <div><label for="cadence">Run at most every</label><input id="cadence" type="number"> </div>
+        <div><label for="effort">Depth</label><select id="effort">
+          <option value="low">quick</option><option value="medium">medium</option>
+          <option value="high">thorough</option><option value="xhigh">very thorough</option>
+        </select></div>
+      </div>
+      <p class="muted small" style="margin:0">Days between automatic runs. A twice daily sync must not mean twice daily analysis: each run costs money and sends financial data off this machine.</p>
+      <div class="row"><button class="primary" id="saveSettings">Save</button></div>
+    </div>
+  </details>
 </main>
 <script type="module" src="/insights.js"></script>
 </body>

@@ -477,6 +477,22 @@ behalf, so the Forecast page carries the list of large amounts at places barely
 seen with a control to mark them. That endpoint existed all along and the
 redesign dropped the page that used it, which left the defence unreachable.
 
+**Only things that call the Claude API belong on the Insights page.** It had
+collected expected income, things that could be sold, and hand entered debts,
+none of which have anything to do with analysis, all of them under a switch that
+says it is off. They are on `/expected` and `/accounts` now. The switch means
+"run itself after a sync": Analyse now works whether or not it is on, which the
+page never said, so "off" read as "this page does nothing". Nothing that needs
+the key is offered when the key is missing, because a button that only ever
+returns an error is a worse answer than a disabled one with the reason beside it.
+
+**A page can be dead with a clean console.** This app catches its own errors and
+shows them in a notice, so `load is not defined` on Insights rendered calmly and
+the page walker, which watched only the console, reported no problems. It checks
+for a visible `.notice.error` and for sections still saying "Loading..." after
+the page has settled. Both failures are invisible to a console watcher and
+obvious to anyone actually using the page.
+
 **Expected income is a forecast input, not an analyst feature.**
 `buildForecastContext` reads `expected_income` straight from the database on
 every projection, whether or not anybody has ever switched Claude on. It used to

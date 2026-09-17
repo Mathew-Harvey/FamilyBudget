@@ -62,7 +62,11 @@ function row(account) {
       + (account.earliest_transaction
         ? `, ${formatDate(account.earliest_transaction)} to ${formatDate(account.latest_transaction)}`
         : ', none yet')
-      + (account.latest_balance_date ? `. Balance read ${formatWhen(account.latest_balance_date)}` : '') }),
+      + (account.latest_balance_date
+        ? `. Balance ${account.source === 'manual' ? 'set by hand' : 'read'} `
+          + formatWhen(account.latest_balance_date)
+        : '') }),
+    account.source === 'manual' ? manualBalance(account) : null,
   ]);
 
   const line = el('div', { class: 'item', style: 'cursor:pointer' }, [
@@ -97,6 +101,102 @@ function group(title, note, accounts) {
   ]);
 }
 
+// A debt open banking cannot reach: a card or loan at a bank we are not
+// connected to. It was entered on the Insights page, under "Debts and accounts
+// we cannot see", beneath a switch about Claude. It has nothing to do with
+// Claude, and an account belongs on the page about accounts.
+function manualForm() {
+  const bank = el('input', { placeholder: 'Bendigo' });
+  const name = el('input', { placeholder: 'The other credit card' });
+  const kind = el('select', {}, [
+    el('option', { value: 'credit_card', text: 'Credit card' }),
+    el('option', { value: 'personal_loan', text: 'Personal loan' }),
+    el('option', { value: 'savings', text: 'Savings' }),
+    el('option', { value: 'transaction', text: 'Everyday' }),
+  ]);
+  const balance = el('input', { type: 'number', step: '0.01', placeholder: '6500.00' });
+  const add = el('button', { class: 'primary', text: 'Add it' });
+
+  add.addEventListener('click', async () => {
+    add.disabled = true;
+    try {
+      await api('/api/analyst/manual-accounts', {
+        method: 'POST',
+        body: {
+          bank: bank.value,
+          name: name.value,
+          type: kind.value,
+          balance: balance.value || null,
+          // Savings and everyday accounts are cash; a card or a loan is a debt.
+          is_liquid: ['savings', 'transaction'].includes(kind.value),
+        },
+      });
+      showError('');
+      await load();
+    } catch (err) {
+      showError(err.message);
+      add.disabled = false;
+    }
+  });
+
+  const field = (label, control) => el('div', {}, [el('label', { text: label }), control]);
+  return el('details', { class: 'card' }, [
+    el('summary', { text: 'Add an account the bank feed cannot see' }),
+    el('div', { class: 'stack', style: 'margin-top:14px' }, [
+      el('p', { class: 'muted small', style: 'margin:0', text:
+        'A card or loan at a bank we are not connected to. Enter it so it counts, '
+        + 'and update the balance yourself when you check it.' }),
+      el('div', { class: 'filters' }, [
+        field('Provider', bank),
+        field('What it is', name),
+        field('Type', kind),
+        field('Amount owed', balance),
+      ]),
+      el('div', { class: 'row' }, [add]),
+    ]),
+  ]);
+}
+
+// A hand entered balance goes stale the moment it is typed, so it is editable
+// here rather than being read only like the ones the bank sends.
+function manualBalance(account) {
+  const amount = el('input', {
+    type: 'number', step: '0.01', style: 'max-width:9rem',
+    value: Math.abs(Number(account.latest_balance ?? 0)).toFixed(2),
+  });
+  const save = el('button', { class: 'small', text: 'Update' });
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      await api(`/api/analyst/manual-accounts/${account.id}/balance`, {
+        method: 'POST',
+        body: { balance: amount.value },
+      });
+      showError('');
+      await load();
+    } catch (err) {
+      showError(err.message);
+      save.disabled = false;
+    }
+  });
+  const remove = el('button', { class: 'small', text: 'Remove' });
+  remove.addEventListener('click', async () => {
+    if (!window.confirm(`Remove ${account.name}? Its balance goes with it.`)) return;
+    remove.disabled = true;
+    try {
+      await api(`/api/analyst/manual-accounts/${account.id}`, { method: 'DELETE' });
+      await load();
+    } catch (err) {
+      showError(err.message);
+      remove.disabled = false;
+    }
+  });
+  return el('div', { class: 'row', style: 'gap:8px;margin-top:10px;flex-wrap:wrap' }, [
+    el('label', { style: 'flex:none', text: 'Amount owed' }),
+    amount, save, remove,
+  ]);
+}
+
 async function load() {
   const { accounts } = await api('/api/accounts');
   const spendable = accounts.filter((a) => a.is_liquid);
@@ -127,12 +227,16 @@ async function load() {
   const list = document.getElementById('list');
   list.innerHTML = '';
   if (!accounts.length) {
-    list.append(el('p', { class: 'empty', text: 'No accounts yet. Run a sync.' }));
+    list.append(
+      el('p', { class: 'empty', text: 'No accounts yet. Run a sync, or add one by hand.' }),
+      manualForm(),
+    );
     return;
   }
   list.append(
     group('Spendable cash', 'Everything the runway is built from.', spendable),
     group('Not spendable', 'Debts, and money we would have to borrow back.', rest),
+    manualForm(),
   );
 }
 

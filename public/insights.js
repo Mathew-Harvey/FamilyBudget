@@ -1,7 +1,9 @@
 import { api, el, formatAmount, renderNav, showError, formatWhen, pageIntro } from '/app.js';
 
 renderNav('/insights');
-pageIntro('Ask Claude about it', 'Periodic analysis and predictive budgeting. Off until you switch it on: it costs money per run and sends financial data off this machine.');
+pageIntro('Ask Claude about it',
+  'A read of the household, a verdict on something you are thinking of buying, '
+  + 'and a cost you know is coming turned into a commitment.');
 
 const SEVERITY = { high: 'out', medium: '', low: '' };
 
@@ -89,49 +91,6 @@ function proposalRow(p) {
   ]);
 }
 
-async function loadManual() {
-  const { accounts } = await api('/api/accounts');
-  const manual = accounts.filter((a) => a.source === 'manual');
-  const holder = document.getElementById('manualList');
-  holder.innerHTML = '';
-  if (!manual.length) {
-    holder.append(el('p', { class: 'muted', text: 'None yet.' }));
-    return;
-  }
-  for (const account of manual) {
-    const input = el('input', { type: 'number', step: '0.01', value: Math.abs(Number(account.latest_balance ?? 0)), style: 'width:8rem' });
-    const save = el('button', { class: 'small', text: 'Update' });
-    save.addEventListener('click', async () => {
-      try {
-        await api(`/api/analyst/manual-accounts/${account.id}/balance`, {
-          method: 'POST',
-          body: { balance: input.value },
-        });
-        await loadManual();
-        showError('');
-      } catch (err) {
-        showError(err.message);
-      }
-    });
-    const remove = el('button', { class: 'small', text: 'Remove' });
-    remove.addEventListener('click', async () => {
-      if (!confirm(`Remove ${account.name}?`)) return;
-      await api(`/api/analyst/manual-accounts/${account.id}`, { method: 'DELETE' });
-      await loadManual();
-    });
-
-    holder.append(
-      el('div', { class: 'row', style: 'padding:0.3rem 0' }, [
-        el('span', { class: 'grow truncate', text: `${account.bank} ${account.name}` }),
-        el('span', { class: 'badge', text: account.type ?? '' }),
-        input,
-        save,
-        remove,
-      ]),
-    );
-  }
-}
-
 function affordCard(r) {
   const verdictClass = r.verdict === 'yes comfortably' ? 'in' : r.verdict === 'not yet' ? 'out' : '';
   const bits = [
@@ -172,6 +131,177 @@ function affordCard(r) {
   for (const risk of r.risks ?? []) bits.push(el('div', { class: 'muted', text: `Risk: ${risk}` }));
   return el('div', { class: 'stack' }, bits);
 }
+
+// On or off, and whether it could run at all. Two separate facts, and the page
+// used to leave both to be deduced: the switch sat in a row of form controls
+// and whether the key was even configured was a grey sentence above them.
+//
+// The switch is only about running on a schedule. Analyse now works whether or
+// not it is on, which the page never said, so "off" read as "this page does
+// nothing" and everything under it looked inert.
+function renderHead(settings, claude) {
+  const head = document.getElementById('head');
+  head.innerHTML = '';
+
+  const toggle = el('input', {
+    type: 'checkbox', class: 'switch',
+    'aria-label': 'Analyse automatically after a sync',
+  });
+  toggle.checked = Boolean(settings.enabled);
+  toggle.addEventListener('change', async () => {
+    toggle.disabled = true;
+    try {
+      await api('/api/analyst/settings', { method: 'POST', body: { enabled: toggle.checked } });
+      await load();
+      showError('');
+    } catch (err) {
+      showError(err.message);
+      toggle.checked = Boolean(settings.enabled);
+      toggle.disabled = false;
+    }
+  });
+
+  head.append(el('div', { class: 'card' }, [
+    el('div', { class: 'row spread' }, [
+      el('span', { class: 'grow' }, [
+        el('span', { class: `state ${claude.configured ? (settings.enabled ? 'ok' : '') : 'warn'}` }, [
+          el('span', { class: 'dot', style: settings.enabled && claude.configured ? null : 'background:var(--neutral)' }),
+          el('span', { text: !claude.configured
+            ? 'Cannot run yet'
+            : settings.enabled ? 'Runs itself after a sync' : 'Only runs when you ask' }),
+        ]),
+        el('span', { class: 't', style: 'margin-top:8px', text: claude.configured
+          ? `Last run ${formatWhen(settings.last_run_at)}`
+          : 'ANTHROPIC_API_KEY is not set' }),
+        el('span', { class: 's', text: claude.configured
+          ? `${claude.model}, at most every ${settings.cadence_days} days`
+          : 'Add it to the environment and restart, then this can run' }),
+      ]),
+      claude.configured ? toggle : null,
+    ]),
+    // What leaves the machine, said plainly and linked. Every field in the
+    // snapshot goes through scrubLabel first, because banks put account and BSB
+    // numbers inside the description text itself.
+    el('p', { class: 'muted small', style: 'margin:12px 0 0' }, [
+      el('span', { text: 'Each run costs money and sends figures off this machine. '
+        + 'Nothing that identifies an account goes with them. ' }),
+      el('a', { href: '/api/analyst/snapshot', target: '_blank', text: 'See exactly what gets sent' }),
+    ]),
+  ]));
+}
+
+async function load() {
+  const { settings, claude, analyses } = await api('/api/analyst');
+  document.getElementById('cadence').value = settings.cadence_days;
+  document.getElementById('effort').value = settings.effort;
+  renderHead(settings, claude);
+
+  // Nothing below this can work without a key, so it is not offered. A button
+  // that only ever returns an error is a worse answer than a greyed out one
+  // with the reason written beside it.
+  for (const id of ['run', 'affordButton', 'trimButton', 'planButton']) {
+    document.getElementById(id).disabled = !claude.configured;
+  }
+  document.getElementById('runState').textContent = claude.configured
+    ? '' : 'Needs ANTHROPIC_API_KEY before it can answer anything.';
+
+  const history = document.getElementById('history');
+  history.innerHTML = '';
+  if (analyses.length) {
+    history.append(el('div', { class: 'sec', text: 'What it has said' }));
+    for (const analysis of analyses) history.append(analysisCard(analysis));
+  }
+}
+
+document.getElementById('saveSettings').addEventListener('click', async () => {
+  try {
+    await api('/api/analyst/settings', {
+      method: 'POST',
+      body: {
+        cadence_days: Number(document.getElementById('cadence').value) || 7,
+        effort: document.getElementById('effort').value,
+      },
+    });
+    await load();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+document.getElementById('run').addEventListener('click', async () => {
+  const button = document.getElementById('run');
+  button.disabled = true;
+  document.getElementById('runState').textContent = 'Thinking, this takes a moment...';
+  try {
+    await api('/api/analyst/analyse', {
+      method: 'POST',
+      body: { question: document.getElementById('question').value || null },
+    });
+    document.getElementById('runState').textContent = '';
+    document.getElementById('question').value = '';
+    await load();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+    document.getElementById('runState').textContent = '';
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.getElementById('planButton').addEventListener('click', async () => {
+  const button = document.getElementById('planButton');
+  const description = document.getElementById('plan').value.trim();
+  if (!description) return;
+  button.disabled = true;
+  const holder = document.getElementById('planResult');
+  holder.innerHTML = '<p class="muted">Working it out...</p>';
+  try {
+    const { analysis } = await api('/api/analyst/plan-expense', { method: 'POST', body: { description } });
+    const r = analysis.result;
+    holder.innerHTML = '';
+    holder.append(el('div', { class: 'muted', text: r.understood }));
+    for (const p of r.proposals ?? []) holder.append(proposalRow(p));
+    if (r.effect) holder.append(el('div', { class: 'muted', text: r.effect }));
+    for (const q of r.questions_for_you ?? []) holder.append(el('div', { class: 'muted', text: `Worth knowing: ${q}` }));
+    showError('');
+  } catch (err) {
+    showError(err.message);
+    holder.innerHTML = '';
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function runAfford(endpoint, body) {
+  const holder = document.getElementById('affordResult');
+  const state = document.getElementById('affordState');
+  holder.innerHTML = '';
+  state.textContent = 'Thinking, this takes a moment...';
+  try {
+    const { analysis } = await api(endpoint, { method: 'POST', body });
+    state.textContent = '';
+    holder.append(analysis.result.verdict ? affordCard(analysis.result) : analysisCard(analysis));
+    await load();
+    showError('');
+  } catch (err) {
+    showError(err.message);
+    state.textContent = '';
+  }
+}
+
+document.getElementById('affordButton').addEventListener('click', () => {
+  const amount = document.getElementById('affordAmount').value;
+  if (!amount) return showError('Put in an amount first');
+  return runAfford('/api/analyst/afford', {
+    amount,
+    description: document.getElementById('affordWhat').value || null,
+    when: document.getElementById('affordWhen').value || null,
+  });
+});
+
+document.getElementById('trimButton').addEventListener('click', () => runAfford('/api/analyst/trim', {}));
 
 try {
   await load();
