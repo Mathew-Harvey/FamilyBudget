@@ -657,12 +657,39 @@ ran this morning.
 **There is one cash chart, `public/chart.js`.** Home and Forecast each drew the
 same projection their own way, which is two pictures of one thing free to
 disagree, and the copy on the Forecast page was still painting its axis labels
-`var(--ink-soft)`, a token that stopped existing in the restyle. Today's level
-and zero are two annotated levels on one dollar scale, which is not two axes.
-Zero is drawn only when the money comes near it, and past a crossing the
-endpoint figure is dropped, because no account holds minus two hundred dollars
-and printing it beside the date the money ran out is a second, wronger answer to
-the same question.
+`var(--ink-soft)`, a token that stopped existing in the restyle. Past a crossing
+the endpoint figure is dropped, because no account holds minus two hundred
+dollars and printing it beside the date the money ran out is a second, wronger
+answer to the same question.
+
+**A curve with no axes is a mood.** It had neither: two annotated levels,
+"today" and "nothing left", and no scale, so nothing on it could be read as an
+amount or as a date, and nobody could say what "nothing left" was labelling. It
+carries both now, on one measure, dollars, which is not two axes. The y axis is
+round dollar steps chosen on the 1, 2, 5 ladder in integer cents, so a tick is
+an exact multiple of a dollar and the cents are dropped by string rather than by
+dividing; zero is a multiple of every step, so it is always a tick whenever it
+is on the chart, and it carries the words "nothing left" under its own figure.
+Gridlines are solid hairlines in `--axis`, drawn over the fill and not under it:
+under a tint of a status colour a level was legible in the margin and gone
+across the plot, which is the half of a gridline that does no work. The x axis
+is month boundaries, thinned to four on a card and three on a phone, with the
+year printed on the first and again whenever it changes. "today" is the first
+tick on that axis, not a rule across the plot: it is a moment, and a horizontal
+line labelled with a word that means a day was this chart's most confusing mark.
+
+**The scale is fitted to the money, and below zero only far enough to show a
+crossing.** It is still not forced down to zero, because twenty two thousand
+dollars moving by two is a flat line on a scale that starts at nothing. But the
+plan draws a second curve, and past its own crossing that curve keeps falling
+into money nobody can be short: a reference reaching minus a hundred thousand
+set the scale and squashed the curve the page is about into the top fifth of the
+plot, where its sawtooth was an unreadable squiggle. The floor stops at about a
+quarter of the top value below zero, which is enough depth to make a crossing
+unmistakable and no more, and anything past it goes off the bottom through a
+hatched band, the same hatch and the same claim as a month taller than the
+Lasting chart: it carries on past here. The lane between zero and that floor is
+empty by construction, which is why the crossing labels live in it.
 
 **Red on the cash chart means below zero, and nothing else.** The band used to
 be measured from today's balance, so an ordinary fortnight that dips before
@@ -834,11 +861,32 @@ reason, one definition of how much of a projection a page draws.
 
 **A label that punches through the curve must sit at the end of its own curve
 and nowhere else.** `.end` wears a surface coloured box so the main figure wins
-against the line it sits on. The reference label inherited it and sits at the
-reference line's end, which is inside the main curve's fill, so the box erased
-a rectangle of that fill and cut the ink line. Invisible in light mode, where
-surface and tint are near enough, and a hole in the chart in dark mode and at
-phone width. The reference label has no box.
+against the line it sits on, and so does the crossing date, which is the same
+case: past a crossing there is no balance to report, so that is where its curve
+ends. The reference label inherited the box and sits at the reference line's
+end, which is inside the main curve's fill, so the box erased a rectangle of
+that fill and cut the ink line. Invisible in light mode, where surface and tint
+are near enough, and a hole in the chart in dark mode and at phone width. The
+reference labels have no box, and they do not need one: they sit under the zero
+line, where nothing else on the chart is drawn.
+
+**A key looks like the mark it names, or it is a puzzle.** Two identical solid
+squares stood for a 2px ink line and a dashed hairline, so the legend had to be
+decoded against the chart it was explaining. A line series gets a piece of its
+own line, solid or dashed as drawn; everything else gets a short rounded bar.
+Nine pixels square is the size and shape of a checkbox, and with `--tier-cut`
+behind it, which is near white in dark mode, the key for the optional costs sat
+at the head of a sentence in a column of actual tick boxes and read as a box
+nobody had ticked.
+
+**Two curves means the legend states both outcomes, and the chart states
+neither twice.** The key carries what each line comes to, "nothing left 21 Apr
+2027" or "$40,686.96 by 12 May 2027", because that is the comparison the plan
+page exists to draw and side by side is the only place it can be compared. So
+the end figure is not also printed on the curve when there is a legend, and the
+quiet mark on the reference carries its name alone: its own line is still
+plunging through the space under the crossing, and a date read across a dashed
+hairline there buys nothing the key has not already said.
 
 **A step's saving is the sum of the rows under it, by construction.** Step two
 was headed 603.65 over four lines adding to 603.66: one rounding of the total
