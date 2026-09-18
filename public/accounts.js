@@ -233,11 +233,14 @@ async function load() {
     );
     return;
   }
-  list.append(
+  // Filtered, because group returns null for a group with nothing in it and
+  // Element.append stringifies that into the word "null" on the page. A
+  // household with no debts read "$22,000.00" and then "null".
+  list.append(...[
     group('Spendable cash', 'Everything the forecast is built from.', spendable),
     group('Not spendable', 'Debts, and money we would have to borrow back.', rest),
     manualForm(),
-  );
+  ].filter(Boolean));
 }
 
 try {
