@@ -6,7 +6,7 @@
 // database work once and returns a model the projection and every presentation
 // can share.
 import { query } from './db.js';
-import { numericToCents, centsToNumeric, centsPerMonth } from './money.js';
+import { numericToCents, centsToNumeric, centsPerMonth, apportion } from './money.js';
 import { today as householdToday } from './dates.js';
 import { matchKeyFor } from './commitments.js';
 
@@ -434,4 +434,109 @@ export async function optionalByMonth(costs, { months = 12, client = { query } }
     if (month === 0) { month = 12; year--; }
   }
   return out;
+}
+
+// How many places the breakdown names before it starts counting them instead.
+// Twelve is enough to recognise where the money goes and short enough to read;
+// the Spending page ranks all of them and is one link away.
+const NAMED_PLACES = 12;
+
+// What the allowance is actually made of.
+//
+// "Everything else optional, day to day" is the largest optional figure in the
+// app and the only one with nothing underneath it. It is not a category anybody
+// chose. It is the residue: what is left of the money out of a spendable
+// account after the transfers, the refunds, the one offs, the repeating costs
+// and everything judged must pay or could trim have been taken out of it. The
+// caption says takeaway and clothes, and some of it is, but TIER_SQL sends
+// whatever nothing has judged to 'cut', so every place nobody has ever looked
+// at lands in that figure silently and reads as a decision somebody made.
+//
+// This app has refused that default twice already: tierTotals gives it a fourth
+// bucket rather than drawing it as a finding, and the plan will not offer to
+// cancel a repeating cost nobody has judged. The allowance is the third and
+// much the largest instance, so the split is named here, once, rather than left
+// to each page to work out or to leave out.
+//
+// Pure. Every figure comes from the model that has already been built, so there
+// is no second definition of optional, no second query, and nothing here can
+// drift from the number it is explaining.
+export function optionalBreakdown(costs) {
+  const historyCents = costs.historical_discretionary_per_month_cents;
+  const inForceCents = costs.discretionary_allowance_cents;
+
+  const places = costs.variable
+    .filter((row) => row.tier === 'cut')
+    .sort((a, b) => b.cents - a.cents);
+
+  // A share of one total, never a second measurement of it. Turning each place
+  // into its own monthly rate and heading the list with a separate conversion
+  // of the whole leaves rows that do not add up to the number above them.
+  //
+  // The cost of that is a place here can read a cent under what the Spending
+  // page reports for the same place over the same window, because that page is
+  // making its own claim about that merchant and this one is making a claim
+  // about a part of the allowance. A cent is the smallest difference there is
+  // and only somebody comparing two pages side by side will ever see it;
+  // eight rows that visibly fail to add up to the figure they are a breakdown
+  // of is wrong at a glance, on the page whose whole job is to be checkable.
+  // Do not "fix" this by rating each place on its own.
+  const shares = apportion(historyCents, places.map((row) => row.cents));
+
+  let judgedCents = 0;
+  let judgedPlaces = 0;
+  let unjudgedCents = 0;
+  let unjudgedPlaces = 0;
+  const rows = places.map((row, index) => {
+    const cents = shares[index];
+    // 'cut' with nothing behind it is the default, and a default is not a
+    // judgement. tier_source is 'debt' only where the tier was forced to keep,
+    // so here it is one or the other.
+    const judged = row.tier_source !== 'default';
+    if (judged) { judgedCents += cents; judgedPlaces++; } else { unjudgedCents += cents; unjudgedPlaces++; }
+    return {
+      key: row.key,
+      name: row.name,
+      category: row.category,
+      judged,
+      days_paid: row.days_paid,
+      per_month_cents: cents,
+      per_month: fromCents(cents),
+    };
+  });
+
+  const named = rows.slice(0, NAMED_PLACES);
+  const tail = rows.slice(NAMED_PLACES);
+
+  return {
+    // The days a rate divides by, not the days it asked for. See coveredDays:
+    // on a database younger than the window the two differ, and the page says
+    // this number out loud.
+    effective_days: costs.effective_days,
+    // What optional day to day spending has actually been running at. The rows
+    // below add up to exactly this.
+    per_month: fromCents(historyCents),
+    per_month_cents: historyCents,
+    // What the plan is carrying, which is this unless somebody chose otherwise.
+    in_force_per_month: fromCents(inForceCents),
+    chosen: costs.discretionary_allowance_chosen,
+    // The two ways a chosen figure can differ from the life behind it, each as
+    // its own non negative number so no page has to read a minus sign to know
+    // which way round it is. The first is the one that matters: money that has
+    // been going out and that the projection is not carrying.
+    not_in_the_plan_per_month: fromCents(Math.max(historyCents - inForceCents, 0)),
+    above_history_per_month: fromCents(Math.max(inForceCents - historyCents, 0)),
+    // The finding, and the reason this function exists.
+    judged: { per_month: fromCents(judgedCents), places: judgedPlaces },
+    unjudged: { per_month: fromCents(unjudgedCents), places: unjudgedPlaces },
+    places: named,
+    // Named rather than dropped, or the list quietly stops adding up to its
+    // own heading at the twelfth row.
+    rest: tail.length
+      ? {
+          places: tail.length,
+          per_month: fromCents(tail.reduce((total, row) => total + row.per_month_cents, 0)),
+        }
+      : null,
+  };
 }

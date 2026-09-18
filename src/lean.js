@@ -21,6 +21,7 @@
 //   both to the same money is how a 322 dollar subscription once bought 22 days
 //   instead of 2.
 import { query } from './db.js';
+import { optionalBreakdown } from './costs.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from './forecast.js';
 import { numericToCents, centsToNumeric, dailyFromMonthly } from './money.js';
 import { friendlyDate, position, cashCurve, curveHorizon } from './behaviour.js';
@@ -238,6 +239,12 @@ export async function leanPlan({
       per_year: fromCents(row.per_month_cents * 12),
     })),
     allowance_per_month: fromCents(allowanceCents),
+    // What that one figure is made of. It is the largest thing on the list and
+    // was the only one with nothing under it: a row saying 2,482.10 a month for
+    // "takeaway, clothes, whatever is not a bill" against which the honest
+    // answer is often that most of it is at places nobody has judged either
+    // way. Same cost model as the row above, so the parts add up to it.
+    allowance: optionalBreakdown(costs),
     // What the projection is built on, for the page to say in four rows. From
     // the same base projection and cost model as everything else here, so it
     // cannot disagree with the curve it explains.

@@ -60,9 +60,11 @@ src/         db.js          one shared pg pool, SSL and type parsers
              auth.js        sessions, the gate, login
              server.js      the Express app
              routes/        one file per area
-public/      today (the front door), login, accounts, spending, transactions,
-             categories, rules, buckets, forecast, transfers, sync, alerts,
-             plus app.js and styles.css
+public/      today (the front door), login, plan, spending, allowance, setup,
+             accounts, transactions, categories, rules, buckets, transfers,
+             sync, alerts, insights, plus app.js, styles.css and the two
+             shared components: chart.js, the one cash chart, and optional.js,
+             the one breakdown of the allowance
 docs/        behaviour.md, the reasoning behind the Today page
 test/        node:test suites and redacted fixtures
 ```
@@ -495,6 +497,36 @@ its merchant nor its category has said anything. `buildCostModel` records
 `tier_source` now, `optional_commitments` excludes `default`, and
 `unjudged_commitments` carries them so `/plan` can name them and link to the page
 that decides them. A default pretending to be advice is worse than a gap.
+
+**The allowance is a residue, not a category, and the row that offers it has to
+say so.** "Everything else optional, day to day" is the largest optional figure
+in the app and was the only one with nothing under it, captioned as takeaway and
+clothes. It is what is left after the transfers, the refunds, the one offs, the
+repeating costs and everything judged must pay or could trim come out, and
+`TIER_SQL` sends whatever nothing has judged to `cut`, so every place nobody has
+looked at lands in it silently. This app already refuses that default twice, in
+`tierTotals`'s fourth bucket and in `optional_commitments` excluding
+`tier_source: 'default'`; this was the third and much the largest instance.
+`optionalBreakdown` in `src/costs.js` names the places and splits judged from
+never looked at, and `public/optional.js` draws it for the two pages that show
+the figure, for the same reason there is one cash chart. It is pure: it reads
+the model that has already been built, so there is no second definition of
+optional and no second query. Nothing about the projection changed, because the
+safer default is still the right one for a projection: what changed is that the
+page stopped claiming a judgement nobody had made.
+
+**A breakdown is a share of one total, and `apportion` is how.** The places under
+the allowance are the allowance divided up, never each place rated again:
+`centsPerMonth` per row against one conversion of the whole leaves eight rows
+that do not add up to the figure they sit under, which is wrong at a glance on
+the one page whose job is to be checkable. `apportion` in `src/money.js` splits
+an integer total by integer weights, largest remainder first, in BigInt so the
+one multiplication is exact. The cost is that a place can read a cent under what
+the Spending page reports for the same merchant over the same window, because
+that page is making its own claim about a merchant and this one is making a
+claim about a part of the allowance. That is the same trade as the debts card
+and it goes the same way. Reconcile checks the sum, and that check fails without
+it.
 
 **A card headed with a cumulative figure over rows that sum to an increment is
 two numbers that disagree.** Step two of the plan was headed 1,123.92 above four

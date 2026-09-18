@@ -12,7 +12,15 @@
 // accept. The allowance is drawn across those months as a line: whether it sits
 // above or below the life you have actually had is the whole decision, and it
 // moves as you pick.
+//
+// Then it says where the money went. The months answer when, and a person
+// looking at 3,490 a month wants to know what it is before replacing it with a
+// number: it is not a category anybody chose, it is the residue left after the
+// bills and the transfers and the one offs, and most of it is usually at places
+// nobody has ever judged either way. Choosing a figure to cover spending you
+// have not looked at is choosing in the dark.
 import { api, el, formatAmount, renderNav, showError } from '/app.js';
+import { optionalParts, optionalChoiceNote } from '/optional.js';
 
 renderNav('/allowance');
 
@@ -175,6 +183,26 @@ function friendlyMonth(key) {
   return `${names[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 }
 
+// --- where it goes --------------------------------------------------------
+
+// The evidence for the decision, and it sits above the decision for that
+// reason. The figure being previewed does not change it: these are the places
+// the money has actually gone, and a number somebody is trying out cannot
+// rewrite that. It is drawn from the same cost model as the chart above, by the
+// one module that also draws it on the plan, so the two cannot disagree.
+function renderParts() {
+  const box = document.getElementById('parts');
+  box.innerHTML = '';
+  const breakdown = data.breakdown;
+  if (!breakdown?.places?.length) return;
+
+  box.append(
+    el('div', { class: 'sec', text: 'Where it goes' }),
+    optionalChoiceNote(breakdown),
+    ...optionalParts(breakdown),
+  );
+}
+
 // --- choosing -------------------------------------------------------------
 
 function renderPick() {
@@ -277,6 +305,7 @@ async function preview(value) {
 
 function draw() {
   renderHead();
+  renderParts();
   renderPick();
   renderNote();
 }

@@ -89,6 +89,16 @@ export function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+// Two letters for a tile, from a place's name. One definition: Spending, Plan
+// and the allowance breakdown all draw the same tile, and a third copy was
+// about to be written for the third of them.
+export function initialsOf(label) {
+  const words = String(label || '').replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/);
+  if (!words[0]) return '??';
+  const first = words[0];
+  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase();
+}
+
 export function showError(message) {
   const holder = document.getElementById('notice');
   if (!holder) return;

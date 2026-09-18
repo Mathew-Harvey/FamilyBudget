@@ -64,6 +64,30 @@ This household is paying for twenty two separate things at under sixty dollars a
 month each. Individually every one of them is obviously fine. Together they are
 **$5,083 a year**.
 
+### A residue is not a category
+
+The biggest optional figure in the app is the allowance, and for a long time it
+was one number under a caption reading "takeaway, clothes, whatever is not a
+bill". It is not a category anybody chose. It is what is left of the money going
+out once the transfers, the refunds, the one offs, the repeating costs and
+everything judged must pay or could trim have been taken out of it, and anything
+nothing has judged goes in by default, because counting unassessed spending as
+optional shortens the runway rather than flattering it. The default is the right
+one for a projection. The caption was describing it as a decision.
+
+That is the second kind of technique, the kind this document exists to refuse: a
+default you did not notice agreeing to, dressed as a judgement you made. On the
+household the app was built for it came to **$2,482 a month**, and the honest
+sentence about most of it is not "this is what you chose to spend on things you
+did not have to buy" but "nobody has ever looked at this".
+
+So the row opens into the places it came from, and says of each one whether
+anybody has judged it. Nothing about the projection changes: the same money is
+counted the same way, because the default really is the safer one. What changes
+is that the page stops claiming a judgement that has not been made, and the
+person can go and make it. Naming the parts is the first kind of technique,
+making a true thing vivid, and it is the only kind available here.
+
 ### The price of things in days
 
 With more going out than coming in, the scarce resource is time, not money. So

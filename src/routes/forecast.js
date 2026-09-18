@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { forecast, buildForecastContext, DEFAULT_SPEND_WINDOW_DAYS } from '../forecast.js';
 import { detectCommitments, matchKeyFor } from '../commitments.js';
-import { optionalByMonth, buildCostModel } from '../costs.js';
+import { optionalByMonth, buildCostModel, optionalBreakdown } from '../costs.js';
 import { position, payPeriods } from '../behaviour.js';
 import { numericToCents, centsToNumeric } from '../money.js';
 
@@ -213,6 +213,12 @@ forecastRouter.get('/allowance', async (req, res, next) => {
         window_days: costs.window,
         effective_days: costs.effective_days,
       },
+      // The months say when the money went. This says where, which is the other
+      // half of the question this page exists to ask and the half it never
+      // answered: the figure it wants a decision about is a residue, and how
+      // much of it is at places nobody has ever looked at is the first thing
+      // worth knowing before choosing a number to replace it with.
+      breakdown: optionalBreakdown(costs),
       quietest,
       typical_month: typicalMonth,
       outliers,

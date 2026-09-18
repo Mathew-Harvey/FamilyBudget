@@ -15,8 +15,9 @@
 //
 // No arithmetic on money happens here. A tick re-asks the server, which
 // re-projects, and every figure on the page comes back from that.
-import { api, el, formatAmount, formatDay, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, formatDay, initialsOf, renderNav, showError } from '/app.js';
 import { cashChart } from '/chart.js';
+import { optionalParts, optionalChoiceNote } from '/optional.js';
 
 renderNav('/plan');
 
@@ -37,14 +38,6 @@ function query() {
     trim: String(ticks.trim),
   });
   return `?${params}`;
-}
-
-// Two letters from the name, the same tile Spending and Home use.
-function initialsOf(label) {
-  const words = String(label || '').replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/);
-  if (!words[0]) return '??';
-  const first = words[0];
-  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase();
 }
 
 // "every 14 days" is arithmetic; a fortnight is a thing that happens.
@@ -164,22 +157,48 @@ function renderHead() {
 
 // --- stop these -----------------------------------------------------------
 
-function tickRow({ checked, onChange, tile, title, caption, right, under }) {
+function tickRow({ checked, onChange, tile, title, caption, right, under, detail, open: openWord }) {
   const box = el('input', { type: 'checkbox' });
   box.checked = checked;
   box.addEventListener('change', () => onChange(box.checked));
-  return el('label', { class: 'item', style: 'cursor:pointer' }, [
+
+  // A row that takes the row apart.
+  //
+  // The whole row is a label, and a click anywhere inside a label toggles its
+  // control, so this button has to refuse the default as well as the bubble:
+  // without that, opening the breakdown would also stop the allowance in the
+  // curve at the top of the page.
+  const inside = detail ? el('div', { class: 'inside', style: 'display:none' }, detail) : null;
+  // Never wrapped. Squeezed into the caption column at phone width, "What is
+  // in it" stacks one word to a line and reads as four separate things.
+  const toggle = inside
+    ? el('button', { type: 'button', class: 'small', style: 'margin-top:7px;white-space:nowrap' })
+    : null;
+  if (toggle) {
+    toggle.textContent = openWord ?? 'What is in it';
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const opening = inside.style.display === 'none';
+      inside.style.display = opening ? '' : 'none';
+      toggle.textContent = opening ? 'Hide it' : (openWord ?? 'What is in it');
+    });
+  }
+
+  const row = el('label', { class: 'item', style: 'cursor:pointer' }, [
     box,
     tile,
     el('span', { class: 'grow' }, [
       el('span', { class: 't truncate', text: title }),
       el('span', { class: 's', text: caption }),
+      toggle,
     ]),
     el('span', { style: 'text-align:right' }, [
       el('span', { class: 'amount out', text: right }),
       under ? el('span', { class: 's', text: under }) : null,
     ]),
   ]);
+  return inside ? el('div', {}, [row, inside]) : row;
 }
 
 function renderStop() {
@@ -200,14 +219,25 @@ function renderStop() {
   }));
 
   if (cents(plan.allowance_per_month) > 0) {
+    // The biggest thing on this list, and until now the only one with nothing
+    // under it. A year figure would be the loud framing, as it is for the
+    // subscriptions above, but this is not one decision: it is a few hundred
+    // purchases at a few dozen places, most of which nobody has judged either
+    // way. The honest loud thing is the list, so the row opens into it.
+    const breakdown = plan.allowance;
     rows.push(tickRow({
       checked: ticks.allowance === 'zero',
       onChange: (on) => { ticks.allowance = on ? 'zero' : 'keep'; refresh(); },
       tile: el('span', { class: 'av cut', text: '..' }),
       title: 'Everything else optional, day to day',
-      caption: 'the allowance: takeaway, clothes, whatever is not a bill',
+      caption: breakdown?.places?.length
+        ? `${breakdown.places.length + (breakdown.rest?.places ?? 0)} places, no bill among them`
+        : 'the allowance: takeaway, clothes, whatever is not a bill',
       right: `${money(plan.allowance_per_month)} a month`,
-      under: 'change the figure on its own page',
+      under: 'set on its own page',
+      detail: breakdown?.places?.length
+        ? [optionalChoiceNote(breakdown), ...optionalParts(breakdown)].filter(Boolean)
+        : null,
     }));
   }
 

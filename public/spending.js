@@ -6,12 +6,18 @@
 // diagram both answers "how much of this can we even change" and teaches what
 // the tile beside every row below means. That replaced two sentences of
 // explanation, which is what it was competing with.
-import { api, el, formatAmount, formatDate, formatDay, renderNav, showError } from '/app.js';
+import { api, el, formatAmount, formatDate, formatDay, initialsOf, renderNav, showError } from '/app.js';
 
 renderNav('/spending');
 
 let view = 'merchants';
 let windowDays = 120;
+
+// A place named by whoever linked here. The allowance breakdown names twelve
+// places and this is where a place is judged, so the link has to land on the
+// row rather than at the top of a list of two hundred. Read once and cleared,
+// or every redraw after a save would drag the page back to it.
+let landOn = new URLSearchParams(window.location.search).get('place');
 
 // The one set of words for the three tiers, in the place the judgement is
 // made. They were four sets: this page said "A choice", Forecast said
@@ -27,13 +33,6 @@ const TIERS = [
   // a solid colour there would read as a fourth thing you could decide about.
   ['unknown', 'Not looked at'],
 ];
-
-// Two letters from the name, the same tile the Home page uses.
-function initialsOf(label) {
-  const words = String(label || '').replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/);
-  if (!words[0]) return '??';
-  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
-}
 
 // A merchant with no judgement on it gets no tier tile colour, for the same
 // reason the diagram hatches its share: 'cut' here is a default, not a finding.
@@ -154,7 +153,7 @@ function renderSwitch() {
 
 // One place. The tile carries the tier, the bar carries the size, the numbers
 // carry the rest. Tapping opens what it actually charged.
-function placeRow(row, max, { onOpen, amount, note }) {
+function placeRow(row, max, { onOpen, amount, note, open = false }) {
   const body = el('div', { class: 'grow' }, [
     el('span', { class: 't truncate', text: row.merchant ?? row.title }),
     note ? el('span', { class: 's truncate', text: note }) : null,
@@ -164,27 +163,29 @@ function placeRow(row, max, { onOpen, amount, note }) {
   const children = el('div', { style: 'display:none;padding:12px 16px;border-top:1px solid var(--line)' });
   let loaded = false;
 
+  const toggle = async () => {
+    const opening = children.style.display === 'none';
+    children.style.display = opening ? '' : 'none';
+    if (opening && !loaded) {
+      loaded = true;
+      children.textContent = 'Loading...';
+      children.className = 'muted small';
+      try {
+        children.innerHTML = '';
+        children.className = '';
+        children.style.padding = '12px 16px';
+        children.style.borderTop = '1px solid var(--line)';
+        children.append(...[].concat(await onOpen()));
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+  };
+
   const line = el('div', {
     class: 'item',
     style: onOpen ? 'cursor:pointer' : null,
-    onClick: onOpen ? async () => {
-      const opening = children.style.display === 'none';
-      children.style.display = opening ? '' : 'none';
-      if (opening && !loaded) {
-        loaded = true;
-        children.textContent = 'Loading...';
-        children.className = 'muted small';
-        try {
-          children.innerHTML = '';
-          children.className = '';
-          children.style.padding = '12px 16px';
-          children.style.borderTop = '1px solid var(--line)';
-          children.append(...[].concat(await onOpen()));
-        } catch (err) {
-          showError(err.message);
-        }
-      }
-    } : null,
+    onClick: onOpen ? toggle : null,
   }, [
     el('span', { class: `av ${tierOf(row)}`, text: initialsOf(row.merchant ?? row.title) }),
     body,
@@ -194,7 +195,15 @@ function placeRow(row, max, { onOpen, amount, note }) {
     ]),
   ]);
 
-  return el('div', {}, [line, children]);
+  const wrap = el('div', {}, [line, children]);
+  // Opened because a link named it. Marked so render can scroll to it once the
+  // list is in the page: scrolling to a node that is not in the document yet
+  // does nothing and looks like a dead link.
+  if (open && onOpen) {
+    wrap.setAttribute('data-landed', '');
+    toggle();
+  }
+  return wrap;
 }
 
 // The deepest level: what this place actually charged, and what it is.
@@ -305,6 +314,9 @@ async function renderMerchants() {
         note: m.ended_on ? 'finished with' : m.what_it_is
           || `${m.transactions} payment${m.transactions === 1 ? '' : 's'}`,
         onOpen: () => merchantDetail(m),
+        // Either name identifies it, because the breakdown keys places by the
+        // merchant key and the list groups them by display name.
+        open: Boolean(landOn) && (m.merchant_key === landOn || m.merchant === landOn),
       })));
   };
 
@@ -504,6 +516,10 @@ async function render() {
         : view === 'unexplained' ? await renderUnexplained()
           : await renderMerchants();
     body.append(...rows);
+    if (landOn) {
+      landOn = null;
+      body.querySelector('[data-landed]')?.scrollIntoView({ block: 'center' });
+    }
     showError('');
   } catch (err) {
     showError(err.message);

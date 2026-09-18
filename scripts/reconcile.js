@@ -12,6 +12,7 @@ import { query, closePool } from '../src/db.js';
 import { buildForecastContext } from '../src/forecast.js';
 import { matchKeyFor } from '../src/commitments.js';
 import { position, debts } from '../src/behaviour.js';
+import { optionalBreakdown } from '../src/costs.js';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -327,6 +328,20 @@ check('the debts card adds up to the debt figure above it',
   `${money(debtCardTotal.toFixed(2))} across ${debtRows.length} accounts`
   + ` against ${money(here.debt_per_month)} shown`);
 
+// The allowance row on the plan opens into a list of places, and that list is
+// offered as what the figure is made of, so it has to be. It is a share of one
+// total rather than each place rated again, for the same reason the debts card
+// above takes its figures from the plan: two measurements of one thing are free
+// to disagree, and a list of eight numbers that does not add up to the heading
+// over it is wrong at a glance.
+const optional = optionalBreakdown(costs);
+const optionalRows = optional.places.reduce((total, row) => total + Number(row.per_month), 0)
+  + Number(optional.rest?.per_month ?? 0);
+check('the places the allowance is made of add up to the allowance',
+  Math.abs(optionalRows - Number(optional.per_month)) < 0.005,
+  `${money(optionalRows.toFixed(2))} across ${optional.places.length + (optional.rest?.places ?? 0)} places`
+  + ` against ${money(optional.per_month)}`);
+
 // 9. Spending nobody has explained. Not a failure, but worth knowing.
 console.log('\nStill unexplained');
 const { rows: [unknown] } = await query(`
@@ -337,6 +352,12 @@ const { rows: [unknown] } = await query(`
 console.log(`        ${money(unknown.uncategorised).padStart(14)}  in no category`);
 console.log(`        ${money(unknown.no_merchant).padStart(14)}  the bank did not say who it went to`);
 console.log(`        ${money(unknown.window_total).padStart(14)}  total in the window`);
+// And the part of it the plan is already treating as optional on nothing more
+// than a default. Not a failure either: 'cut' is the safer default and the
+// projection wants it. It is worth printing because it is money the plan offers
+// to stop on nobody's authority, and the number is usually large.
+console.log(`        ${money(optional.unjudged.per_month).padStart(14)}  a month of the allowance is at `
+  + `${optional.unjudged.places} place${optional.unjudged.places === 1 ? '' : 's'} nobody has judged`);
 
 console.log(failures === 0
   ? '\nEverything reconciles.\n'

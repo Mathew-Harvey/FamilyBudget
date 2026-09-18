@@ -1,7 +1,7 @@
 // Money must be exact. No floating point arithmetic anywhere near an amount.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { centsToNumeric, numericToCents, redbarkAmountToCents, formatCents } from '../src/money.js';
+import { centsToNumeric, numericToCents, redbarkAmountToCents, formatCents, apportion } from '../src/money.js';
 
 test('cents convert to a 2dp decimal string', () => {
   assert.equal(centsToNumeric(0), '0.00');
@@ -76,4 +76,60 @@ test('display formatting keeps the sign outside the dollar sign', () => {
   assert.equal(formatCents(-15970), '-$159.70');
   assert.equal(formatCents(15970), '$159.70');
   assert.equal(formatCents(0), '$0.00');
+});
+
+test('a total split into shares always adds back up to the total', () => {
+  // The whole point. Converting each part on its own and heading the list with
+  // a separate conversion of the whole is what leaves a card saying 603.65 over
+  // four rows making 603.66.
+  const cases = [
+    [248210, [1234567, 98765, 4321, 77, 0, 3]],
+    [100000, [1, 1, 1]],
+    [1, [1, 1, 1, 1, 1]],
+    [7, [3, 3, 1]],
+    [349020, [40, 40, 40, 40, 40, 40, 40]],
+    [999_999_999_999, [999_999_999_999, 1]],
+  ];
+  for (const [total, weights] of cases) {
+    const parts = apportion(total, weights);
+    assert.equal(parts.length, weights.length);
+    assert.equal(parts.reduce((a, b) => a + b, 0), total, `lost a cent splitting ${total}`);
+    assert.ok(parts.every((part) => Number.isInteger(part) && part >= 0));
+  }
+});
+
+test('shares stay exact across many awkward splits', () => {
+  for (let n = 1; n <= 150; n++) {
+    // Weights that share no common factor with the total, which is where
+    // rounding each part on its own goes wrong.
+    const weights = Array.from({ length: n }, (_, i) => (i * 7919) % 1013);
+    const total = 100_000 + n;
+    const parts = apportion(total, weights);
+    const expected = weights.some(Boolean) ? total : 0;
+    assert.equal(parts.reduce((a, b) => a + b, 0), expected, `drifted at ${n} parts`);
+    // Nothing invented: a weight of zero never gets a cent.
+    weights.forEach((weight, i) => {
+      if (weight === 0) assert.equal(parts[i], 0);
+    });
+  }
+});
+
+test('the largest remainder gets the odd cent, and the same input gives the same answer', () => {
+  // 10 cents over weights of 1, 2 and 4: 1.43, 2.86, 5.71 before rounding, so
+  // the spare cent belongs to the .86, not to whichever came first.
+  assert.deepEqual(apportion(10, [1, 2, 4]), [1, 3, 6]);
+  assert.deepEqual(apportion(10, [1, 2, 4]), apportion(10, [1, 2, 4]));
+  // A tie goes to the earlier position rather than to chance.
+  assert.deepEqual(apportion(10, [1, 1, 1]), [4, 3, 3]);
+});
+
+test('a split refuses what it cannot do exactly', () => {
+  assert.deepEqual(apportion(500, [0, 0, 0]), [0, 0, 0]);
+  assert.deepEqual(apportion(0, [3, 1]), [0, 0]);
+  // Truncation runs the wrong way below zero, so this is refused rather than
+  // quietly coming back two cents short.
+  assert.throws(() => apportion(-500, [1, 1]), RangeError);
+  assert.throws(() => apportion(100, [1, -1]), TypeError);
+  assert.throws(() => apportion(100, [1, 1.5]), TypeError);
+  assert.throws(() => apportion(100, 'not an array'), TypeError);
 });
