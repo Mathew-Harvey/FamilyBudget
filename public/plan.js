@@ -65,7 +65,14 @@ const isShort = (plan) => {
 // what cutting cannot reach, drawn hatched because it is the absence of an
 // answer and not a fourth kind of saving.
 const TONE = { optional: 'cut', trim: 'trim' };
-const SHORT = { optional: 'Optional costs', trim: 'Trimming' };
+
+// A key that says only "Trimming" names a step of the plan to somebody who has
+// already read the plan. The words are what the step actually does, so the
+// track can be read on its own: stopping things, and spending less at the rest.
+const SHORT = {
+  optional: () => 'Stopping the optional costs',
+  trim: (plan) => `Spending ${plan.trim_percent} percent less`,
+};
 
 function gapDiagram(plan, short) {
   const gap = cents(plan.now.gap_per_month);
@@ -80,6 +87,11 @@ function gapDiagram(plan, short) {
   }).filter((segment) => segment.added > 0);
   const shortfall = Math.max(gap - running, 0);
   return el('div', { style: 'margin-top:14px' }, [
+    // The track is the gap, and it had nothing saying so: a bar under a figure
+    // with three keys beneath it left the reader to guess what the whole length
+    // was, which is the one thing that makes the parts mean anything.
+    el('span', { class: 's', style: 'margin-bottom:6px', text:
+      `Where the ${money(plan.now.gap_per_month)} a month could come from` }),
     el('div', { class: 'split', style: 'height:22px' }, [
       ...segments.map((segment) => el('i', {
         style: `flex:${segment.added};background:var(--tier-${TONE[segment.key] ?? 'trim'})`,
@@ -89,7 +101,7 @@ function gapDiagram(plan, short) {
     el('div', { class: 'keys' }, [
       ...segments.map((segment, index) => el('span', {}, [
         el('i', { style: `background:var(--tier-${TONE[segment.key] ?? 'trim'})` }),
-        el('span', { text: `${SHORT[segment.key] ?? steps[index].title} ` }),
+        el('span', { text: `${SHORT[segment.key]?.(plan) ?? steps[index].title} ` }),
         el('b', { text: money((segment.added / 100).toFixed(2)) }),
       ])),
       shortfall > 0 ? el('span', {}, [
@@ -142,15 +154,16 @@ function renderHead() {
     gapDiagram(plan, short),
     chosen.curve?.series?.length > 1
       ? cashChart(chosen.curve.series, {
-          height: 200,
+          height: 210,
           runwayDate: chosen.curve.runway_date,
-          reference: { series: plan.curve.as_is.series, label: 'as it is' },
+          label: 'With what is ticked',
+          reference: {
+            series: plan.curve.as_is.series,
+            label: 'as it is',
+            runwayDate: plan.curve.as_is.runway_date,
+          },
         })
       : null,
-    el('div', { class: 'keys', style: 'margin-top:6px' }, [
-      el('span', {}, [el('i', { style: 'background:var(--ink)' }), el('span', { text: 'With what is ticked' })]),
-      el('span', {}, [el('i', { style: 'background:var(--neutral)' }), el('span', { text: 'As it is' })]),
-    ]),
     el('p', { class: 'muted small', style: 'margin:12px 0 0', text: verdict }),
   ]));
 }

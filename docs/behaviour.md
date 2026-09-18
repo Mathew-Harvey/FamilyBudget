@@ -234,9 +234,12 @@ closing it after the first screen still leaves you with the thing that matters:
 1. **The date the money runs out**, and the gap per month, with the curve that
    date sits on. The headline is a point on that curve: a runway date is where
    it crosses zero, a balance is where it starts. Drawing it says the same thing
-   in the one dimension a figure cannot carry, which is time, and the band
-   either side of today's level answers "are we building up or running down"
-   without a word.
+   in the one dimension a figure cannot carry, which is time, and the slope
+   answers "are we building up or running down" without a word. The curve
+   carries both its axes, dollars up the side and months along the bottom
+   starting at today, because a shape you cannot read an amount or a date off is
+   a mood rather than a claim, and every other figure on this page can be
+   checked against something.
 2. **This pay period**, which is the horizon anything can be done about today.
    The runway is a date months out and the gap is a fact about a shape; neither
    changes what happens this afternoon. The pay lands every fortnight and has to

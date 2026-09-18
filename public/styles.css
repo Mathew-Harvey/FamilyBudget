@@ -223,7 +223,17 @@ a.item:hover { background: var(--page); }
 .split i:last-child  { border-radius: 2px 6px 6px 2px; }
 .keys { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; font-size: 0.82rem; color: var(--ink-2); }
 .keys span { display: inline-flex; align-items: center; gap: 6px; }
-.keys i { width: 9px; height: 9px; border-radius: 2px; }
+/* A short bar, not a square. Nine pixels square with a pale fill is the shape
+   and size of a checkbox, and on the plan page it sat at the head of a sentence
+   in a column of actual tick boxes: the key for the optional costs was read as
+   a box nobody had ticked. A swatch has to look like the mark it names. */
+.keys i { width: 14px; height: 8px; border-radius: 3px; flex: none; }
+/* For a line series, the key is a piece of the line, solid or dashed exactly as
+   it is drawn. Two identical squares for a 2px ink line and a dashed hairline
+   is a legend that has to be decoded against the chart it is explaining. */
+.keys i.line, .keys i.dash { height: 0; width: 18px; border-radius: 0; }
+.keys i.line { border-top: 2px solid var(--ink); }
+.keys i.dash { border-top: 2px dashed var(--neutral); }
 .keys b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 .meter { height: 10px; border-radius: 5px; background: var(--line); position: relative; overflow: hidden; }
@@ -412,40 +422,116 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
 }
 
 /* --- the cash curve ------------------------------------------------------ */
+/* Four parts on one grid: the dollar gutter, the plot, the date band, and the
+   key. The plot used to be the whole thing, with two annotated levels and no
+   scale on either side of it, so a curve could be looked at but not read. An
+   axis band has to be part of the box rather than drawn over it, or the labels
+   sit on the card's own text. */
+.chart {
+  display: grid; grid-template-columns: 4.2rem 1fr; column-gap: 7px;
+  margin-top: 16px;
+}
+.chart .yaxis { grid-area: 1 / 1; position: relative; }
+.chart .cash  { grid-area: 1 / 2; }
+.chart .xaxis { grid-area: 2 / 2; }
+.chart .keys  { grid-area: 3 / 1 / 4 / -1; }
+
+/* Ticks hang off their own level, so the figure and the gridline are the same
+   statement. Tabular figures because this is a column of numbers. */
+.chart .yaxis span {
+  position: absolute; right: 0; transform: translateY(-50%);
+  text-align: right; line-height: 1.15;
+}
+.chart .yaxis b {
+  display: block; font-size: 0.68rem; font-weight: inherit; color: var(--muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+/* Zero is the one level with a meaning rather than just a value, so it says
+   what it means underneath itself. The words wear the status colour and the
+   figure does not: a red number in a column of black ones would read as a
+   quantity that is somehow bad. */
+.chart .yaxis span.nil b { color: var(--ink-2); font-weight: 640; }
+.chart .yaxis i {
+  display: block; font-size: 0.59rem; font-style: normal; font-weight: 620;
+  color: var(--out); white-space: nowrap; letter-spacing: -0.01em;
+}
+
+/* The time axis. "today" is the first tick, left aligned against the start of
+   the curve; the rest are month boundaries, centred on theirs. */
+.chart .xaxis { position: relative; height: 1.15rem; margin-top: 6px; }
+.chart .xaxis span {
+  position: absolute; transform: translateX(-50%);
+  font-size: 0.68rem; color: var(--muted); white-space: nowrap;
+}
+.chart .xaxis span.first { transform: none; color: var(--ink-2); font-weight: 560; }
+
+/* A key that names a line, rather than a segment of a bar, carries a sentence:
+   the swatch sits with the first line of it and the words wrap under
+   themselves. Without this a phone lays the name and the outcome out as two
+   narrow columns, each wrapped twice. */
+.chart .keys { row-gap: 7px; }
+.chart .keys > span { align-items: flex-start; }
+.chart .keys > span > i { margin-top: 0.55em; }
+.chart .keys > span > span { display: block; }
+
 /* The plot is stretched to the card's width, so nothing inside it carries text:
    the labels are HTML on top, positioned as a share of the box. */
-.cash { position: relative; margin-top: 16px; }
-.cash .plot { width: 100%; height: 100%; display: block; overflow: visible; }
+.cash { position: relative; padding-top: 6px; }
+.cash .plot { width: 100%; height: 100%; display: block; }
 
-.cash .ref, .cash .end, .cash .zero, .cash .mark b, .cash .tip {
+/* A curve that leaves the bottom of the scale. The chart shows the money, and
+   below zero there is no money to show, only a date: how deep the hole gets is
+   not a figure anyone uses, and letting it set the scale flattened the curve
+   the page is about into a squiggle. Hatched, the same as a month taller than
+   the Lasting chart, because it means the same thing: it carries on past here. */
+.cash.clipped::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 9px;
+  background: repeating-linear-gradient(135deg,
+    var(--line) 0 4px, var(--surface) 4px 8px);
+  pointer-events: none;
+}
+
+.cash .end, .cash .mark b, .cash .tip {
   position: absolute; font-size: 0.73rem; white-space: nowrap; pointer-events: none;
 }
 .cash .end b, .cash .tip b { font-weight: 660; color: var(--ink); }
 .cash .end span { color: var(--muted); }
-/* Today's level, on the left where the line starts. The end figure sits on the
-   right where it ends, so the two never meet. */
-/* Punched through the curve rather than dodged around it. A sawtooth crosses
-   its own starting level every fortnight, so there is no side of the line that
-   is reliably clear, and a label that moves about is worse than one that sits
-   still and wins. */
-.cash .ref, .cash .zero, .cash .end {
-  background: var(--surface); padding: 0 5px; border-radius: 3px;
-}
-.cash .ref { left: -5px; color: var(--muted); }
-.cash .ref.above { transform: translateY(-150%); }
-.cash .ref.below { transform: translateY(50%); }
-.cash .zero { left: -5px; color: var(--out); font-weight: 620; transform: translateY(-150%); }
+/* Punched through the curve rather than dodged around it, for the one label
+   that has to sit on the line: a sawtooth crosses its own levels every
+   fortnight, so there is no side that is reliably clear. Nothing else on this
+   chart wears the box. It erases a rectangle of whatever is behind it, and the
+   labels below the zero line have nothing behind them to erase. */
+.cash .end { background: var(--surface); padding: 0 5px; border-radius: 3px; }
 .cash .end { right: -5px; transform: translateY(-140%); text-align: right; }
+/* A curve that ends on its highest point puts this label off the top of the
+   plot and onto the card's own heading, so there it goes under its line. */
+.cash .end.under { transform: translateY(45%); }
 
 .cash .mark { position: absolute; transform: translate(-50%, -50%); }
 .cash .mark i {
   display: block; width: 9px; height: 9px; border-radius: 50%;
   background: var(--out); box-shadow: 0 0 0 2px var(--surface);
 }
+/* Under its own dot, which puts it below the zero line: the one lane on this
+   chart that is empty by construction, because everything above it is the money
+   there is and nothing draws down there but the crossing itself. Above the dot
+   is inside the curve's own fill, and a label needing a box to survive there
+   erases a rectangle of that fill and cuts the ink line with it. */
 .cash .mark b {
   left: 50%; top: 11px; transform: translateX(-50%);
   color: var(--out); font-weight: 660;
 }
+/* The date the money runs out is the most important text on this chart, and
+   past a crossing the curve is oscillating around the very line the label sits
+   on. It is at the end of its own curve, which is the one place a punch through
+   is allowed: past there is no balance to report anyway. */
+.cash .mark.bad b { background: var(--surface); padding: 0 5px; border-radius: 3px; }
+/* The comparison curve's own mark. Hollow and muted: the reference is the quiet
+   one and the ink line is the subject, but it still gets to say which line it
+   is and where it runs out, because that is the comparison the page exists to
+   draw and a key two inches below is a worse answer than the word itself. */
+.cash .mark.quiet i { background: var(--surface); border: 2px solid var(--neutral); }
+.cash .mark.quiet b { color: var(--ink-2); font-weight: 560; }
 
 /* The hover layer. Hidden until a pointer is actually over the plot, so the
    chart at rest is the shape and nothing else. */
@@ -477,9 +563,24 @@ details > summary { cursor: pointer; font-weight: 560; color: var(--ink-2); font
    spent on "lower than it is today", which is what a line going down already
    says on its own. */
 .cash .tip b.under-zero { color: var(--out); }
+/* The distance between the two lines: the one thing on the tooltip that is
+   about the comparison rather than about a day. */
+.cash .tip span.gap { color: var(--ink-2); }
 
-/* Room for the labels that sit above the line at either end. */
-.cash { padding-top: 6px; }
+/* The gutter is most of a phone's chart at four rem, so it narrows with the
+   figures and the plot keeps the width. */
+/* Four dates fit a card and three fit a phone. Dropped rather than shrunk:
+   below about this width the axis has to say less, and two dates printed on
+   top of each other say nothing at all. */
+@media (max-width: 560px) {
+  .chart .xaxis span.thin { display: none; }
+}
+@media (max-width: 420px) {
+  .chart { grid-template-columns: 3.7rem 1fr; column-gap: 5px; }
+  .chart .yaxis b, .chart .xaxis span { font-size: 0.63rem; }
+  .chart .yaxis i { font-size: 0.55rem; }
+  .chart .keys { font-size: 0.78rem; }
+}
 
 /* --- a group of switches under the thing that turns them on -------------- */
 /* Indented and ruled, because three ticks in a row beside a fourth that owns
@@ -598,6 +699,6 @@ input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: default; }
    fill, and the box was erasing a rectangle of that fill and cutting the ink
    line. Obvious in dark mode, hidden in light where surface and tint match. */
 .cash .end.ref {
-  transform: translateY(35%); color: var(--muted); font-weight: 560;
+  transform: translateY(35%); color: var(--ink-2); font-weight: 560;
   background: transparent; padding: 0;
 }
